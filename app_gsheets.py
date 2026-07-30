@@ -493,6 +493,22 @@ def save_orders_gsheets(df: pd.DataFrame) -> list[str]:
         return skipped_columns
 
 
+def next_order_row_gsheets(service, spreadsheet_id: str, worksheet_name: str) -> int:
+    resp = execute_sheets_request(
+        service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=f"{worksheet_name}!A2:Q",
+        ),
+        "find next order row",
+    )
+    values = resp.get("values", [])
+    last_used_offset = 0
+    for idx, row_values in enumerate(values, start=1):
+        if any(str(cell).strip() for cell in row_values):
+            last_used_offset = idx
+    return last_used_offset + 2
+
+
 def append_order_gsheets(row: pd.Series) -> list[str]:
     spreadsheet_id, worksheet_name, sa_json_path = _sheets_env()
     service = get_sheets_service(sa_json_path, _service_account_json())
@@ -500,29 +516,21 @@ def append_order_gsheets(row: pd.Series) -> list[str]:
     row = compute_profit_row(row.copy())
     row["Last Updated"] = now_str()
 
-    # Append only through Part Price. Total Price and Profit are formula columns
-    # in the sheet, so writing across them can trigger protected-cell errors.
+    row_number = next_order_row_gsheets(service, spreadsheet_id, worksheet_name)
+
+    # Write only editable order-entry columns. Avoid inserting a full sheet row,
+    # because that can trip protections on formula columns in the same row.
     leading_cols = COLUMNS[:17]
     leading_values = [[sheet_cell_value(row, col) for col in leading_cols]]
-    append_resp = execute_sheets_request(
-        service.spreadsheets().values().append(
+    execute_sheets_request(
+        service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
-            range=f"{worksheet_name}!A:Q",
+            range=f"{worksheet_name}!A{row_number}:Q{row_number}",
             valueInputOption="USER_ENTERED",
-            insertDataOption="INSERT_ROWS",
             body={"values": leading_values},
         ),
         "append order",
     )
-
-    updated_range = append_resp.get("updates", {}).get("updatedRange", "")
-    match = re.search(r"!(?:'[^']+'!)?[A-Z]+(\d+)", updated_range)
-    if not match:
-        match = re.search(r"[A-Z]+(\d+)", updated_range)
-    if not match:
-        return []
-
-    row_number = int(match.group(1))
     skipped_columns = []
     trailing_cols = ["Payment Method", "Paid?", "Last Updated", "Internal Notes"]
     for col in trailing_cols:
