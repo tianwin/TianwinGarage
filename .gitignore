@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local/private configuration
+.env
+start.bash
+.streamlit/secrets.toml
+*.json
+!sample_*.json
+
+# Local app data and generated exports
+data/
