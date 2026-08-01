@@ -43,6 +43,7 @@ from typing import Optional, Tuple
 
 import pandas as pd
 import streamlit as st
+import altair as alt
 
 # Google Sheets API (google-api-python-client)
 try:
@@ -1196,7 +1197,7 @@ with tabs[2]:
         )
 
         with trend_tab:
-            st.markdown("### Revenue and Profit")
+            st.markdown("### Weekly Financial Trends")
             valid_dates = dfx[dfx["Date Parsed"].notna()].copy()
             if valid_dates.empty:
                 st.info("No valid dates available for trend charts.")
@@ -1206,9 +1207,40 @@ with tabs[2]:
                     .sum()
                     .sort_index()
                     .round(2)
+                    .reindex(
+                        pd.date_range(
+                            valid_dates["Week"].min(),
+                            valid_dates["Week"].max(),
+                            freq="W-MON",
+                        ),
+                        fill_value=0,
+                    )
+                    .reset_index()
+                    .rename(columns={"index": "Week"})
+                    .rename(columns={"Total Price": "Revenue", "Part Cost": "Parts Cost"})
                 )
-                weekly.index = weekly.index.strftime("%Y-%m-%d")
-                st.line_chart(weekly.rename(columns={"Total Price": "Revenue", "Part Cost": "Parts Cost"}))
+                weekly_long = weekly.melt(
+                    id_vars="Week",
+                    value_vars=["Revenue", "Profit", "Parts Cost"],
+                    var_name="Metric",
+                    value_name="Amount",
+                )
+                weekly_chart = (
+                    alt.Chart(weekly_long)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X("Week:T", title="Week"),
+                        y=alt.Y("Amount:Q", title="Amount ($)"),
+                        color=alt.Color("Metric:N", title="Metric"),
+                        tooltip=[
+                            alt.Tooltip("Week:T", title="Week", format="%Y-%m-%d"),
+                            alt.Tooltip("Metric:N", title="Metric"),
+                            alt.Tooltip("Amount:Q", title="Amount", format="$,.2f"),
+                        ],
+                    )
+                    .properties(height=360)
+                )
+                st.altair_chart(weekly_chart, use_container_width=True)
 
                 c_left, c_right = st.columns(2)
                 with c_left:
