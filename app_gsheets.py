@@ -79,7 +79,6 @@ COLUMNS = [
     "Part Price",
     "Total Price",
     "Profit",
-    "Payment Method",
     "Paid?",
     "Last Updated",
     "Internal Notes",
@@ -87,7 +86,6 @@ COLUMNS = [
 
 ORDER_STATUS_OPTIONS = ["New", "In Progress", "Completed", "Canceled", "Warranty Follow-up"]
 PART_STATUS_OPTIONS = ["Ordered", "Arrived", "Installed", "Returned", "Backorder", "Canceled"]
-PAYMENT_METHOD_OPTIONS = ["Cash", "Zelle", "Card", "Venmo", "Check", "Other"]
 PAID_OPTIONS = ["Yes", "No"]
 
 REAL_ORDER_COLUMNS = [
@@ -513,7 +511,7 @@ def append_order_gsheets(row: pd.Series) -> list[str]:
     spreadsheet_id, worksheet_name, sa_json_path = _sheets_env()
     service = get_sheets_service(sa_json_path, _service_account_json())
 
-    row = compute_profit_row(row.copy())
+    row = row.copy()
     row["Last Updated"] = now_str()
 
     row_number = next_order_row_gsheets(service, spreadsheet_id, worksheet_name)
@@ -532,7 +530,7 @@ def append_order_gsheets(row: pd.Series) -> list[str]:
         "append order",
     )
     skipped_columns = []
-    trailing_cols = ["Payment Method", "Paid?", "Last Updated", "Internal Notes"]
+    trailing_cols = ["Paid?", "Last Updated", "Internal Notes"]
     for col in trailing_cols:
         col_idx = COLUMNS.index(col) + 1
         col_letter = get_column_letter(col_idx)
@@ -688,7 +686,6 @@ def generate_work_order_html(row: pd.Series) -> str:
     vin = safe_get("VIN", "")
     mileage = safe_get("Mileage", "")
     job_notes = safe_get("Job / Notes", "")
-    payment_method = safe_get("Payment Method", "")
     paid = safe_get("Paid?", "")
     
     # Get price values - handle both numeric and string types
@@ -953,10 +950,6 @@ def generate_work_order_html(row: pd.Series) -> str:
                 <span>Total:</span>
                 <span>{total_price_str}</span>
             </div>
-            <div class="price-row" style="margin-top: 4px;">
-                <span>Payment Method:</span>
-                <span>{payment_method if payment_method else "N/A"}</span>
-            </div>
             <div class="price-row">
                 <span>Paid:</span>
                 <span>{paid if paid else "No"}</span>
@@ -1014,17 +1007,16 @@ if st.sidebar.button("🔄 Reload from source"):
     st.rerun()
 
 if st.sidebar.button("💾 Save now"):
-    df2 = df.apply(compute_profit_row, axis=1)
-    save_orders_with_feedback(df2, st.sidebar)
+    save_orders_with_feedback(df, st.sidebar)
 
 if st.sidebar.button("📦 Export Excel"):
-    df2 = real_orders_df(df).apply(compute_profit_row, axis=1)
+    df2 = real_orders_df(df)
     out = export_excel(df2)
     st.sidebar.success(f"Exported: {out.name}")
 
 if st.sidebar.button("⬇️ Export CSV"):
     ensure_dirs()
-    df2 = real_orders_df(df).apply(compute_profit_row, axis=1)
+    df2 = real_orders_df(df)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out = EXPORT_DIR / f"orders_export_{ts}.csv"
     df2.to_csv(out, index=False, encoding="utf-8-sig")
@@ -1044,7 +1036,6 @@ if uploaded_csv is not None:
             new_df = normalize_df(new_df)
             original_rows = len(new_df)
             new_df = real_orders_df(new_df)
-            new_df = new_df.apply(compute_profit_row, axis=1)
 
             df_current = st.session_state.get("df", df).copy()
             merged = pd.concat([df_current, new_df], ignore_index=True)
@@ -1099,7 +1090,6 @@ with tabs[0]:
         column_config={
             "Order Status": st.column_config.SelectboxColumn("Order Status", options=ORDER_STATUS_OPTIONS),
             "Part Status": st.column_config.SelectboxColumn("Part Status", options=PART_STATUS_OPTIONS),
-            "Payment Method": st.column_config.SelectboxColumn("Payment Method", options=PAYMENT_METHOD_OPTIONS),
             "Paid?": st.column_config.SelectboxColumn("Paid?", options=PAID_OPTIONS),
             "Labor": st.column_config.NumberColumn("Labor", format="$%.2f"),
             "Part Cost": st.column_config.NumberColumn("Part Cost", format="$%.2f"),
@@ -1109,11 +1099,12 @@ with tabs[0]:
         },
     )
 
-    edited2 = edited.apply(compute_profit_row, axis=1)
-    st.session_state["df"] = edited2
+    st.session_state["df"] = edited
 
     if st.button("Save changes"):
-        save_orders_with_feedback(edited2, st)
+        if save_orders_with_feedback(edited, st):
+            st.session_state["df"] = load_orders()
+            st.rerun()
 
 with tabs[1]:
     st.subheader("Add Order (form)")
@@ -1135,10 +1126,9 @@ with tabs[1]:
         base["Plate"] = h.text_input("Plate")
         base["VIN"] = i.text_input("VIN")
 
-        j, k, l = st.columns(3)
+        j, k = st.columns(2)
         base["Mileage"] = j.number_input("Mileage", min_value=0, value=0, step=100)
         base["Labor"] = k.number_input("Labor ($)", min_value=0.0, value=0.0, step=0.01, format="%.2f")
-        base["Payment Method"] = l.selectbox("Payment Method", PAYMENT_METHOD_OPTIONS, index=5)
 
         base["Paid?"] = st.selectbox("Paid?", PAID_OPTIONS, index=1)
         base["Job / Notes"] = st.text_area("Job / Notes")
@@ -1160,13 +1150,11 @@ with tabs[1]:
     if submitted:
         row = pd.Series(base)
         row["Last Updated"] = now_str()
-        row = compute_profit_row(row)
 
         if append_order_with_feedback(row, st):
-            df_current = st.session_state.get("df", df).copy()
-            df_current = pd.concat([df_current, pd.DataFrame([row])], ignore_index=True)
-            st.session_state["df"] = df_current
+            st.session_state["df"] = load_orders()
             st.success("Order added ✅")
+            st.rerun()
 
 with tabs[2]:
     st.subheader("Business Dashboard")
