@@ -332,13 +332,14 @@ def order_overview_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
     mask = recent_mask | future_mask | active_status
     dfx = dfx.loc[mask].copy()
     dfx["_Date Parsed"] = parsed_dates.loc[dfx.index]
+    dfx["_Has Valid Date"] = dfx["_Date Parsed"].notna()
     dfx["_Date Distance"] = (dfx["_Date Parsed"].dt.normalize() - today).abs()
     dfx = dfx.sort_values(
-        ["_Date Distance", "_Date Parsed", "Time"],
-        ascending=[True, True, True],
+        ["_Has Valid Date", "_Date Distance", "_Date Parsed", "Time"],
+        ascending=[False, True, True, True],
         na_position="last",
     )
-    return dfx.drop(columns=["_Date Parsed", "_Date Distance"])
+    return dfx.drop(columns=["_Date Parsed", "_Has Valid Date", "_Date Distance"])
 
 
 def table_height(row_count: int) -> int:
