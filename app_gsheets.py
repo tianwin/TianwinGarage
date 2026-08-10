@@ -37,6 +37,7 @@ import os
 import re
 import time
 import json
+import html
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
@@ -110,6 +111,18 @@ REAL_ORDER_COLUMNS = [
     "Part Notes",
     "Part Cost",
     "Part Price",
+]
+
+ORDER_SUMMARY_COLUMNS = [
+    "Order Status",
+    "Date",
+    "Time",
+    "Customer",
+    "Vehicle (Year Make Model)",
+    "Job / Notes",
+    "Total Price",
+    "Profit",
+    "Paid?",
 ]
 
 
@@ -262,6 +275,8 @@ def dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def money(value) -> str:
+    if pd.isna(value) or value == "":
+        return "$0.00"
     return f"${float(value or 0):,.2f}"
 
 
@@ -287,12 +302,20 @@ def render_quick_stat_card(title: str, subtitle: str, window_df: pd.DataFrame) -
     profit = window_df["Profit"].sum()
     part_cost = window_df["Part Cost"].sum()
 
-    st.markdown(f"**{title}**")
-    st.caption(subtitle)
-    st.metric("Orders", int(len(window_df)))
-    st.metric("Revenue", money(revenue))
-    st.metric("Profit", money(profit))
-    st.caption(f"Parts cost: {money(part_cost)}")
+    st.markdown(
+        f"""
+        <div class="tw-stat-card">
+            <div class="tw-stat-title">{html.escape(title)}</div>
+            <div class="tw-stat-subtitle">{html.escape(subtitle)}</div>
+            <div class="tw-stat-primary">{int(len(window_df))}</div>
+            <div class="tw-stat-label">Orders</div>
+            <div class="tw-stat-row"><span>Revenue</span><strong>{money(revenue)}</strong></div>
+            <div class="tw-stat-row"><span>Profit</span><strong>{money(profit)}</strong></div>
+            <div class="tw-stat-foot">Parts cost {money(part_cost)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def past_days_orders_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
@@ -309,6 +332,45 @@ def past_days_orders_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
 
 def table_height(row_count: int) -> int:
     return max(180, 38 + (row_count + 1) * 35)
+
+
+def style_order_table(data: pd.DataFrame):
+    def cell_styles(row):
+        styles = []
+        status = str(row.get("Order Status", "") or "").strip()
+        paid = str(row.get("Paid?", "") or "").strip().lower()
+
+        for col in row.index:
+            style = "background-color: #ffffff; color: #1d1d1f; border-color: #f2f2f7;"
+            if col == "Order Status":
+                if status == "New":
+                    style = "background-color: #fff4d6; color: #7a4d00; font-weight: 600;"
+                elif status == "In Progress":
+                    style = "background-color: #e8f3ff; color: #0057b8; font-weight: 600;"
+                elif status == "Completed":
+                    style = "background-color: #eaf8ee; color: #1f7a3b; font-weight: 600;"
+                elif status == "Canceled":
+                    style = "background-color: #f5f5f7; color: #6e6e73; font-weight: 600;"
+                elif status == "Warranty Follow-up":
+                    style = "background-color: #f1ecff; color: #5e3db2; font-weight: 600;"
+            elif col == "Paid?":
+                if paid == "yes":
+                    style = "background-color: #eaf8ee; color: #1f7a3b; font-weight: 600;"
+                elif paid == "no":
+                    style = "background-color: #fff1f0; color: #b42318; font-weight: 600;"
+            styles.append(style)
+        return styles
+
+    return data.style.apply(cell_styles, axis=1).format(
+        {
+            "Labor": money,
+            "Part Cost": money,
+            "Part Price": money,
+            "Total Price": money,
+            "Profit": money,
+        },
+        na_rep="",
+    )
 
 
 # -----------------------------
@@ -752,17 +814,6 @@ def export_excel(df: pd.DataFrame) -> Path:
     return out
 
 
-def get_order_status_color(status):
-    status_colors = {
-        "New": "#FFEB3B",  # Yellow
-        "In Progress": "#4CAF50",  # Green
-        "Completed": "#9E9E9E",  # Gray
-        "Canceled": "#FFFFFF",
-        "Warranty Follow-up": "#FFFFFF",
-    }
-    return status_colors.get(status, "#FFFFFF")
-
-
 def generate_work_order_html(row: pd.Series) -> str:
     """Generate HTML for a customer-facing work order."""
     def safe_get(key, default=""):
@@ -1068,6 +1119,116 @@ def generate_work_order_html(row: pd.Series) -> str:
 
 
 st.set_page_config(page_title="Auto Repair Orders", layout="wide")
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background: #f5f5f7;
+        color: #1d1d1f;
+    }
+    section[data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid #e5e5ea;
+    }
+    div[data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e5e5ea;
+        border-radius: 8px;
+        padding: 14px 16px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    div[data-testid="stMetric"] label {
+        color: #6e6e73;
+    }
+    .tw-stat-card {
+        background: #ffffff;
+        border: 1px solid #e5e5ea;
+        border-radius: 8px;
+        padding: 16px;
+        min-height: 218px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    .tw-stat-title {
+        color: #1d1d1f;
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.25;
+    }
+    .tw-stat-subtitle,
+    .tw-stat-label,
+    .tw-stat-foot {
+        color: #6e6e73;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+    .tw-stat-subtitle {
+        margin-top: 6px;
+    }
+    .tw-stat-primary {
+        color: #1d1d1f;
+        font-size: 34px;
+        font-weight: 650;
+        line-height: 1;
+        margin-top: 18px;
+    }
+    .tw-stat-row {
+        align-items: baseline;
+        border-top: 1px solid #f2f2f7;
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+        margin-top: 12px;
+        padding-top: 10px;
+    }
+    .tw-stat-row span {
+        color: #6e6e73;
+        font-size: 12px;
+    }
+    .tw-stat-row strong {
+        color: #1d1d1f;
+        font-size: 15px;
+        font-weight: 650;
+        text-align: right;
+        white-space: nowrap;
+    }
+    .tw-stat-foot {
+        margin-top: 10px;
+    }
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #e5e5ea;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #ffffff;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px;
+        background: #ffffff;
+        border: 1px solid #e5e5ea;
+        border-radius: 8px;
+        padding: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 6px;
+        padding: 8px 12px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #f2f2f7;
+    }
+    .stTabs [aria-selected="true"] p {
+        color: #007aff;
+    }
+    .stTabs [data-baseweb="tab-highlight"] {
+        background-color: #007aff;
+    }
+    div.stButton > button,
+    div[data-testid="stFormSubmitButton"] button {
+        border-radius: 8px;
+        border: 1px solid #d1d1d6;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 st.title("🚗 Auto Repair Orders — Google Sheets")
 
 if not gsheets_enabled():
@@ -1163,34 +1324,36 @@ for col, (title, subtitle, window_df) in zip(stat_cols, quick_stat_windows(quick
 
 st.divider()
 
-tabs = st.tabs(["🧾 Orders Table", "➕ Add Order", "📈 Stats", "🖨️ Print Work Order"])
+tabs = st.tabs(["🧾 Orders Table", "📋 All Details", "➕ Add Order", "📈 Stats", "🖨️ Print Work Order"])
 
 with tabs[0]:
-    st.subheader("Orders Table (past 30 days)")
-    st.caption("Showing dated orders from the past 30 days. Edit cells here, then click **Save changes** below.")
-    st.caption("🟡 Yellow = New | 🟢 Green = In Progress | ⚪ Gray = Completed")
+    st.subheader("Orders Table")
+    st.caption("Past 30 days, newest first.")
     recent_df = past_days_orders_df(df, days=30)
+    summary_cols = [col for col in ORDER_SUMMARY_COLUMNS if col in recent_df.columns]
+    recent_summary = recent_df[summary_cols].copy()
     recent_height = table_height(len(recent_df))
-
-    def style_row(row):
-        status = str(row["Order Status"]) if pd.notna(row["Order Status"]) else ""
-        color = get_order_status_color(status)
-        return [f"background-color: {color}" for _ in row]
 
     if recent_df.empty:
         st.info("No dated orders found in the past 30 days.")
     else:
-        df_styled = recent_df.style.apply(style_row, axis=1)
-        st.dataframe(df_styled, use_container_width=True, hide_index=True, height=recent_height)
+        st.dataframe(
+            style_order_table(recent_summary),
+            use_container_width=True,
+            hide_index=True,
+            height=recent_height,
+        )
 
-    st.markdown("---")
-    st.markdown("**Edit recent orders:**")
+with tabs[1]:
+    st.subheader("All Detail Orders")
+    st.caption("Full editable sheet. Save writes back to Google Sheets.")
+    detail_height = table_height(len(df))
 
     edited = st.data_editor(
-        recent_df,
+        df,
         use_container_width=True,
-        num_rows="fixed",
-        height=recent_height,
+        num_rows="dynamic",
+        height=detail_height,
         column_config={
             "Order Status": st.column_config.SelectboxColumn("Order Status", options=ORDER_STATUS_OPTIONS),
             "Part Status": st.column_config.SelectboxColumn("Part Status", options=PART_STATUS_OPTIONS),
@@ -1204,13 +1367,11 @@ with tabs[0]:
     )
 
     if st.button("Save changes"):
-        merged = df.copy()
-        merged.loc[edited.index, edited.columns] = edited
-        if save_orders_with_feedback(merged, st):
+        if save_orders_with_feedback(edited, st):
             st.session_state["df"] = load_orders()
             st.rerun()
 
-with tabs[1]:
+with tabs[2]:
     st.subheader("Add Order (form)")
     base = {c: "" for c in COLUMNS}
     current_orders_df = st.session_state.get("df", df)
@@ -1263,7 +1424,7 @@ with tabs[1]:
             st.success("Order added ✅")
             st.rerun()
 
-with tabs[2]:
+with tabs[3]:
     st.subheader("Business Dashboard")
     raw_dashboard_df = st.session_state.get("df", df)
     dfx = dashboard_df(raw_dashboard_df)
@@ -1474,7 +1635,7 @@ with tabs[2]:
             ]
             st.dataframe(dfx.loc[issue_mask, issue_cols], use_container_width=True, hide_index=True)
 
-with tabs[3]:
+with tabs[4]:
     st.subheader("🖨️ Print Work Order")
     st.caption("Select an order to generate a customer-facing work order for printing.")
     
