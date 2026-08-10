@@ -1104,11 +1104,17 @@ except Exception as e:
         with st.expander("Google Sheets load error"):
             st.exception(e)
     except Exception as fallback_error:
-        st.error("❌ **Error loading orders from Google Sheets.**")
-        st.info("The connection to Google timed out or failed. Wait a moment, then click Reload from source.")
-        st.exception(e)
-        st.exception(fallback_error)
-        st.stop()
+        df = normalize_df(pd.DataFrame(columns=COLUMNS))
+        st.session_state["using_local_snapshot"] = True
+        st.session_state.pop("local_snapshot_file", None)
+        st.error("❌ **Google Sheets timed out.**")
+        st.info(
+            "No local CSV snapshot is available on this deployment, so the dashboard is showing empty read-only data. "
+            "Wait a moment, then click Reload from source."
+        )
+        with st.expander("Connection details"):
+            st.exception(e)
+            st.caption(str(fallback_error))
 
 using_local_snapshot = st.session_state.get("using_local_snapshot", False)
 if using_local_snapshot and st.session_state.get("local_snapshot_file"):
@@ -1118,8 +1124,15 @@ st.sidebar.header("Actions")
 
 if st.sidebar.button("🔄 Reload from source"):
     st.cache_resource.clear()  # refresh service/auth cache if needed
-    st.session_state["df"] = load_orders()
-    st.rerun()
+    try:
+        with st.spinner("Reloading orders from Google Sheets..."):
+            st.session_state["df"] = load_orders()
+        st.session_state["using_local_snapshot"] = False
+        st.session_state.pop("local_snapshot_file", None)
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error("Reload failed. Google Sheets timed out again.")
+        st.sidebar.exception(e)
 
 if st.sidebar.button("💾 Save now", disabled=using_local_snapshot):
     save_orders_with_feedback(df, st.sidebar)
