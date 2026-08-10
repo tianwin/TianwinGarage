@@ -332,16 +332,13 @@ def order_overview_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
     mask = recent_mask | future_mask | active_status
     dfx = dfx.loc[mask].copy()
     dfx["_Date Parsed"] = parsed_dates.loc[dfx.index]
-    dfx["_Is Future"] = dfx["_Date Parsed"].dt.normalize() > today
-    dfx["_Is Active"] = dfx["Order Status"].fillna("").astype(str).str.strip().isin(
-        ["New", "In Progress", "Warranty Follow-up"]
-    )
+    dfx["_Date Distance"] = (dfx["_Date Parsed"].dt.normalize() - today).abs()
     dfx = dfx.sort_values(
-        ["_Is Active", "_Is Future", "_Date Parsed", "Time"],
-        ascending=[False, False, True, True],
+        ["_Date Distance", "_Date Parsed", "Time"],
+        ascending=[True, True, True],
         na_position="last",
     )
-    return dfx.drop(columns=["_Date Parsed", "_Is Future", "_Is Active"])
+    return dfx.drop(columns=["_Date Parsed", "_Date Distance"])
 
 
 def table_height(row_count: int) -> int:
