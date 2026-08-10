@@ -295,6 +295,22 @@ def render_quick_stat_card(title: str, subtitle: str, window_df: pd.DataFrame) -
     st.caption(f"Parts cost: {money(part_cost)}")
 
 
+def past_days_orders_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
+    dfx = df.copy()
+    parsed_dates = pd.to_datetime(dfx["Date"].apply(parse_order_date), errors="coerce")
+    today = pd.Timestamp(datetime.now().date())
+    start_date = today - pd.Timedelta(days=days - 1)
+    mask = parsed_dates.notna() & (parsed_dates.dt.normalize() >= start_date) & (parsed_dates.dt.normalize() <= today)
+    dfx = dfx.loc[mask].copy()
+    dfx["_Date Parsed"] = parsed_dates.loc[dfx.index]
+    dfx = dfx.sort_values(["_Date Parsed", "Time"], ascending=[False, True], na_position="last")
+    return dfx.drop(columns=["_Date Parsed"])
+
+
+def table_height(row_count: int) -> int:
+    return max(180, 38 + (row_count + 1) * 35)
+
+
 # -----------------------------
 # Google Sheets backend
 # -----------------------------
@@ -1150,25 +1166,31 @@ st.divider()
 tabs = st.tabs(["🧾 Orders Table", "➕ Add Order", "📈 Stats", "🖨️ Print Work Order"])
 
 with tabs[0]:
-    st.subheader("Orders Table (edit directly)")
-    st.caption("Edit cells here. Then click **Save now** (sidebar) or **Save changes** below.")
+    st.subheader("Orders Table (past 30 days)")
+    st.caption("Showing dated orders from the past 30 days. Edit cells here, then click **Save changes** below.")
     st.caption("🟡 Yellow = New | 🟢 Green = In Progress | ⚪ Gray = Completed")
+    recent_df = past_days_orders_df(df, days=30)
+    recent_height = table_height(len(recent_df))
 
     def style_row(row):
         status = str(row["Order Status"]) if pd.notna(row["Order Status"]) else ""
         color = get_order_status_color(status)
         return [f"background-color: {color}" for _ in row]
 
-    df_styled = df.style.apply(style_row, axis=1)
-    st.dataframe(df_styled, use_container_width=True, hide_index=True, height=400)
+    if recent_df.empty:
+        st.info("No dated orders found in the past 30 days.")
+    else:
+        df_styled = recent_df.style.apply(style_row, axis=1)
+        st.dataframe(df_styled, use_container_width=True, hide_index=True, height=recent_height)
 
     st.markdown("---")
-    st.markdown("**Edit below:**")
+    st.markdown("**Edit recent orders:**")
 
     edited = st.data_editor(
-        df,
+        recent_df,
         use_container_width=True,
-        num_rows="dynamic",
+        num_rows="fixed",
+        height=recent_height,
         column_config={
             "Order Status": st.column_config.SelectboxColumn("Order Status", options=ORDER_STATUS_OPTIONS),
             "Part Status": st.column_config.SelectboxColumn("Part Status", options=PART_STATUS_OPTIONS),
@@ -1181,10 +1203,10 @@ with tabs[0]:
         },
     )
 
-    st.session_state["df"] = edited
-
     if st.button("Save changes"):
-        if save_orders_with_feedback(edited, st):
+        merged = df.copy()
+        merged.loc[edited.index, edited.columns] = edited
+        if save_orders_with_feedback(merged, st):
             st.session_state["df"] = load_orders()
             st.rerun()
 
