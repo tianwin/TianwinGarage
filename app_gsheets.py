@@ -48,10 +48,14 @@ import altair as alt
 # Google Sheets API (google-api-python-client)
 try:
     from google.oauth2.service_account import Credentials
+    import google_auth_httplib2
+    import httplib2
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
 except Exception:  # pragma: no cover
     Credentials = None
+    google_auth_httplib2 = None
+    httplib2 = None
     build = None
     HttpError = None
 
@@ -341,7 +345,15 @@ def get_sheets_service(sa_json_path: Optional[str], sa_json: Optional[str]):
         creds = Credentials.from_service_account_info(json.loads(sa_json), scopes=scopes)
     else:
         creds = Credentials.from_service_account_file(sa_json_path, scopes=scopes)
-    return build("sheets", "v4", credentials=creds)
+
+    if google_auth_httplib2 is not None and httplib2 is not None:
+        authed_http = google_auth_httplib2.AuthorizedHttp(
+            creds,
+            http=httplib2.Http(timeout=12),
+        )
+        return build("sheets", "v4", http=authed_http, cache_discovery=False)
+
+    return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
 
 def get_column_letter(n):
@@ -353,11 +365,11 @@ def get_column_letter(n):
     return result
 
 
-def execute_sheets_request(request, action: str, attempts: int = 4):
+def execute_sheets_request(request, action: str, attempts: int = 2):
     last_error = None
     for attempt in range(1, attempts + 1):
         try:
-            return request.execute(num_retries=2)
+            return request.execute(num_retries=0)
         except Exception as e:
             last_error = e
             if HttpError is not None and isinstance(e, HttpError):
@@ -393,7 +405,7 @@ def sheet_cell_value(row: pd.Series, col: str):
 
 def load_orders_gsheets() -> pd.DataFrame:
     spreadsheet_id, worksheet_name, sa_json_path = _sheets_env()
-    service = get_sheets_service(sa_json_path, _service_account_json())
+    service = get_sheets_service(sa_json_path, None if sa_json_path else _service_account_json())
 
     # Read full used range. We expect headers in row 1.
     rng = f"{worksheet_name}!A1:Z"  # plenty wide
@@ -413,7 +425,7 @@ def load_orders_gsheets() -> pd.DataFrame:
 
 def save_orders_gsheets(df: pd.DataFrame) -> list[str]:
     spreadsheet_id, worksheet_name, sa_json_path = _sheets_env()
-    service = get_sheets_service(sa_json_path, _service_account_json())
+    service = get_sheets_service(sa_json_path, None if sa_json_path else _service_account_json())
 
     df = normalize_df(df.copy())
     df["Last Updated"] = now_str()
@@ -540,7 +552,7 @@ def next_order_row_gsheets(service, spreadsheet_id: str, worksheet_name: str) ->
 
 def append_order_gsheets(row: pd.Series) -> list[str]:
     spreadsheet_id, worksheet_name, sa_json_path = _sheets_env()
-    service = get_sheets_service(sa_json_path, _service_account_json())
+    service = get_sheets_service(sa_json_path, None if sa_json_path else _service_account_json())
 
     row = row.copy()
     row["Last Updated"] = now_str()
@@ -722,6 +734,25 @@ def export_excel(df: pd.DataFrame) -> Path:
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Orders")
     return out
+
+
+def latest_local_orders_file() -> Optional[Path]:
+    candidates = []
+    if (DATA_DIR / "orders.csv").exists():
+        candidates.append(DATA_DIR / "orders.csv")
+    if EXPORT_DIR.exists():
+        candidates.extend(EXPORT_DIR.glob("orders_export_*.csv"))
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def load_orders_local_snapshot() -> tuple[pd.DataFrame, Path]:
+    source = latest_local_orders_file()
+    if source is None:
+        raise FileNotFoundError("No local orders CSV snapshot found in data/ or data/exports/.")
+    return normalize_df(pd.read_csv(source)), source
 
 
 def get_order_status_color(status):
@@ -1057,12 +1088,31 @@ sid, ws, sa = _sheets_env()
 st.caption(f"Backend: **Google Sheets** | Tab: **{ws}**")
 
 try:
-    df = load_orders()
+    with st.spinner("Loading orders from Google Sheets..."):
+        df = load_orders()
+    st.session_state["using_local_snapshot"] = False
+    st.session_state.pop("local_snapshot_file", None)
 except Exception as e:
-    st.error("❌ **Error loading orders from Google Sheets.**")
-    st.info("The connection to Google timed out or failed. Wait a moment, then click Reload from source.")
-    st.exception(e)
-    st.stop()
+    try:
+        df, snapshot_file = load_orders_local_snapshot()
+        st.session_state["using_local_snapshot"] = True
+        st.session_state["local_snapshot_file"] = str(snapshot_file)
+        st.warning(
+            "Google Sheets timed out, so this page is showing a local CSV snapshot. "
+            "Use Reload from source when the connection is back."
+        )
+        with st.expander("Google Sheets load error"):
+            st.exception(e)
+    except Exception as fallback_error:
+        st.error("❌ **Error loading orders from Google Sheets.**")
+        st.info("The connection to Google timed out or failed. Wait a moment, then click Reload from source.")
+        st.exception(e)
+        st.exception(fallback_error)
+        st.stop()
+
+using_local_snapshot = st.session_state.get("using_local_snapshot", False)
+if using_local_snapshot and st.session_state.get("local_snapshot_file"):
+    st.caption(f"Viewing local snapshot: {Path(st.session_state['local_snapshot_file']).name}")
 
 st.sidebar.header("Actions")
 
@@ -1071,8 +1121,10 @@ if st.sidebar.button("🔄 Reload from source"):
     st.session_state["df"] = load_orders()
     st.rerun()
 
-if st.sidebar.button("💾 Save now"):
+if st.sidebar.button("💾 Save now", disabled=using_local_snapshot):
     save_orders_with_feedback(df, st.sidebar)
+if using_local_snapshot:
+    st.sidebar.warning("Saving is disabled while viewing a local snapshot.")
 
 if st.sidebar.button("📦 Export Excel"):
     df2 = real_orders_df(df)
@@ -1108,7 +1160,9 @@ if uploaded_csv is not None:
             skipped_rows = original_rows - len(new_df)
             if skipped_rows:
                 st.sidebar.info(f"Skipped {skipped_rows} blank rows.")
-            if save_orders_with_feedback(merged, st.sidebar):
+            if using_local_snapshot:
+                st.sidebar.warning("Import/save is disabled while viewing a local snapshot.")
+            elif save_orders_with_feedback(merged, st.sidebar):
                 st.session_state["df"] = merged
                 df = merged
                 st.sidebar.success(f"Imported {len(new_df)} rows successfully ✅")
@@ -1165,7 +1219,7 @@ with tabs[0]:
 
     st.session_state["df"] = edited
 
-    if st.button("Save changes"):
+    if st.button("Save changes", disabled=using_local_snapshot):
         if save_orders_with_feedback(edited, st):
             st.session_state["df"] = load_orders()
             st.rerun()
@@ -1218,7 +1272,9 @@ with tabs[1]:
         row["Order ID"] = ensure_unique_order_id(row.get("Order ID", ""), current_orders_df)
         row["Last Updated"] = now_str()
 
-        if append_order_with_feedback(row, st):
+        if using_local_snapshot:
+            st.warning("Add order is disabled while viewing a local snapshot. Reload from source first.")
+        elif append_order_with_feedback(row, st):
             st.session_state["df"] = load_orders()
             st.success("Order added ✅")
             st.rerun()
