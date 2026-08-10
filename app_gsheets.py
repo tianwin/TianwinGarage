@@ -736,25 +736,6 @@ def export_excel(df: pd.DataFrame) -> Path:
     return out
 
 
-def latest_local_orders_file() -> Optional[Path]:
-    candidates = []
-    if (DATA_DIR / "orders.csv").exists():
-        candidates.append(DATA_DIR / "orders.csv")
-    if EXPORT_DIR.exists():
-        candidates.extend(EXPORT_DIR.glob("orders_export_*.csv"))
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
-
-
-def load_orders_local_snapshot() -> tuple[pd.DataFrame, Path]:
-    source = latest_local_orders_file()
-    if source is None:
-        raise FileNotFoundError("No local orders CSV snapshot found in data/ or data/exports/.")
-    return normalize_df(pd.read_csv(source)), source
-
-
 def get_order_status_color(status):
     status_colors = {
         "New": "#FFEB3B",  # Yellow
@@ -1090,35 +1071,11 @@ st.caption(f"Backend: **Google Sheets** | Tab: **{ws}**")
 try:
     with st.spinner("Loading orders from Google Sheets..."):
         df = load_orders()
-    st.session_state["using_local_snapshot"] = False
-    st.session_state.pop("local_snapshot_file", None)
 except Exception as e:
-    try:
-        df, snapshot_file = load_orders_local_snapshot()
-        st.session_state["using_local_snapshot"] = True
-        st.session_state["local_snapshot_file"] = str(snapshot_file)
-        st.warning(
-            "Google Sheets timed out, so this page is showing a local CSV snapshot. "
-            "Use Reload from source when the connection is back."
-        )
-        with st.expander("Google Sheets load error"):
-            st.exception(e)
-    except Exception as fallback_error:
-        df = normalize_df(pd.DataFrame(columns=COLUMNS))
-        st.session_state["using_local_snapshot"] = True
-        st.session_state.pop("local_snapshot_file", None)
-        st.error("❌ **Google Sheets timed out.**")
-        st.info(
-            "No local CSV snapshot is available on this deployment, so the dashboard is showing empty read-only data. "
-            "Wait a moment, then click Reload from source."
-        )
-        with st.expander("Connection details"):
-            st.exception(e)
-            st.caption(str(fallback_error))
-
-using_local_snapshot = st.session_state.get("using_local_snapshot", False)
-if using_local_snapshot and st.session_state.get("local_snapshot_file"):
-    st.caption(f"Viewing local snapshot: {Path(st.session_state['local_snapshot_file']).name}")
+    st.error("❌ **Error loading orders from Google Sheets.**")
+    st.info("This app uses Google Sheets as the only live source. Local CSV files are only for backups/demo exports.")
+    st.exception(e)
+    st.stop()
 
 st.sidebar.header("Actions")
 
@@ -1127,17 +1084,13 @@ if st.sidebar.button("🔄 Reload from source"):
     try:
         with st.spinner("Reloading orders from Google Sheets..."):
             st.session_state["df"] = load_orders()
-        st.session_state["using_local_snapshot"] = False
-        st.session_state.pop("local_snapshot_file", None)
         st.rerun()
     except Exception as e:
         st.sidebar.error("Reload failed. Google Sheets timed out again.")
         st.sidebar.exception(e)
 
-if st.sidebar.button("💾 Save now", disabled=using_local_snapshot):
+if st.sidebar.button("💾 Save now"):
     save_orders_with_feedback(df, st.sidebar)
-if using_local_snapshot:
-    st.sidebar.warning("Saving is disabled while viewing a local snapshot.")
 
 if st.sidebar.button("📦 Export Excel"):
     df2 = real_orders_df(df)
@@ -1173,9 +1126,7 @@ if uploaded_csv is not None:
             skipped_rows = original_rows - len(new_df)
             if skipped_rows:
                 st.sidebar.info(f"Skipped {skipped_rows} blank rows.")
-            if using_local_snapshot:
-                st.sidebar.warning("Import/save is disabled while viewing a local snapshot.")
-            elif save_orders_with_feedback(merged, st.sidebar):
+            if save_orders_with_feedback(merged, st.sidebar):
                 st.session_state["df"] = merged
                 df = merged
                 st.sidebar.success(f"Imported {len(new_df)} rows successfully ✅")
@@ -1232,7 +1183,7 @@ with tabs[0]:
 
     st.session_state["df"] = edited
 
-    if st.button("Save changes", disabled=using_local_snapshot):
+    if st.button("Save changes"):
         if save_orders_with_feedback(edited, st):
             st.session_state["df"] = load_orders()
             st.rerun()
@@ -1285,9 +1236,7 @@ with tabs[1]:
         row["Order ID"] = ensure_unique_order_id(row.get("Order ID", ""), current_orders_df)
         row["Last Updated"] = now_str()
 
-        if using_local_snapshot:
-            st.warning("Add order is disabled while viewing a local snapshot. Reload from source first.")
-        elif append_order_with_feedback(row, st):
+        if append_order_with_feedback(row, st):
             st.session_state["df"] = load_orders()
             st.success("Order added ✅")
             st.rerun()
