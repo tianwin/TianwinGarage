@@ -318,16 +318,30 @@ def render_quick_stat_card(title: str, subtitle: str, window_df: pd.DataFrame) -
     )
 
 
-def past_days_orders_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
+def order_overview_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
     dfx = df.copy()
     parsed_dates = pd.to_datetime(dfx["Date"].apply(parse_order_date), errors="coerce")
     today = pd.Timestamp(datetime.now().date())
     start_date = today - pd.Timedelta(days=days - 1)
-    mask = parsed_dates.notna() & (parsed_dates.dt.normalize() >= start_date) & (parsed_dates.dt.normalize() <= today)
+    normalized_dates = parsed_dates.dt.normalize()
+    recent_mask = parsed_dates.notna() & (normalized_dates >= start_date) & (normalized_dates <= today)
+    future_mask = parsed_dates.notna() & (normalized_dates > today)
+    active_status = dfx["Order Status"].fillna("").astype(str).str.strip().isin(
+        ["New", "In Progress", "Warranty Follow-up"]
+    )
+    mask = recent_mask | future_mask | active_status
     dfx = dfx.loc[mask].copy()
     dfx["_Date Parsed"] = parsed_dates.loc[dfx.index]
-    dfx = dfx.sort_values(["_Date Parsed", "Time"], ascending=[False, True], na_position="last")
-    return dfx.drop(columns=["_Date Parsed"])
+    dfx["_Is Future"] = dfx["_Date Parsed"].dt.normalize() > today
+    dfx["_Is Active"] = dfx["Order Status"].fillna("").astype(str).str.strip().isin(
+        ["New", "In Progress", "Warranty Follow-up"]
+    )
+    dfx = dfx.sort_values(
+        ["_Is Active", "_Is Future", "_Date Parsed", "Time"],
+        ascending=[False, False, True, True],
+        na_position="last",
+    )
+    return dfx.drop(columns=["_Date Parsed", "_Is Future", "_Is Active"])
 
 
 def table_height(row_count: int) -> int:
@@ -1328,8 +1342,8 @@ tabs = st.tabs(["🧾 Orders Table", "📋 All Details", "➕ Add Order", "📈 
 
 with tabs[0]:
     st.subheader("Orders Table")
-    st.caption("Past 30 days, newest first.")
-    recent_df = past_days_orders_df(df, days=30)
+    st.caption("Past 30 days, plus future appointments and active work.")
+    recent_df = order_overview_df(df, days=30)
     summary_cols = [col for col in ORDER_SUMMARY_COLUMNS if col in recent_df.columns]
     recent_summary = recent_df[summary_cols].copy()
     recent_height = table_height(len(recent_df))
