@@ -261,6 +261,36 @@ def money(value) -> str:
     return f"${float(value or 0):,.2f}"
 
 
+def quick_stat_windows(dfx: pd.DataFrame):
+    today = pd.Timestamp(datetime.now().date())
+    week_start = today - pd.Timedelta(days=today.weekday())
+    biweekly_start = week_start - pd.Timedelta(days=7)
+    month_start = today.replace(day=1)
+
+    dated = dfx[dfx["Date Parsed"].notna()].copy()
+    dated = dated[dated["Date Parsed"].dt.normalize() <= today]
+
+    return [
+        ("This Week", f"Since {week_start:%b %d}", dated[dated["Date Parsed"] >= week_start]),
+        ("Biweekly", f"Since {biweekly_start:%b %d}", dated[dated["Date Parsed"] >= biweekly_start]),
+        ("Month-to-Date", f"Since {month_start:%b %d}", dated[dated["Date Parsed"] >= month_start]),
+        ("Overall", "All real orders", dfx),
+    ]
+
+
+def render_quick_stat_card(title: str, subtitle: str, window_df: pd.DataFrame) -> None:
+    revenue = window_df["Total Price"].sum()
+    profit = window_df["Profit"].sum()
+    part_cost = window_df["Part Cost"].sum()
+
+    st.markdown(f"**{title}**")
+    st.caption(subtitle)
+    st.metric("Orders", int(len(window_df)))
+    st.metric("Revenue", money(revenue))
+    st.metric("Profit", money(profit))
+    st.caption(f"Parts cost: {money(part_cost)}")
+
+
 # -----------------------------
 # Google Sheets backend
 # -----------------------------
@@ -624,6 +654,40 @@ def append_order_with_feedback(row: pd.Series, target=st) -> bool:
     except Exception as e:
         show_google_write_error(e, target, "Add order")
         return False
+
+
+def generate_order_id(df: pd.DataFrame, prefix: str = "RO") -> str:
+    date_part = datetime.now().strftime("%Y%m%d")
+    pattern = re.compile(rf"^{re.escape(prefix)}-{date_part}-(\d+)$")
+    max_sequence = 0
+
+    if df is not None and "Order ID" in df.columns:
+        for value in df["Order ID"].dropna():
+            match = pattern.match(str(value).strip())
+            if match:
+                max_sequence = max(max_sequence, int(match.group(1)))
+
+    return f"{prefix}-{date_part}-{max_sequence + 1:03d}"
+
+
+def ensure_unique_order_id(order_id: str, df: pd.DataFrame, prefix: str = "RO") -> str:
+    existing_ids = set()
+    if df is not None and "Order ID" in df.columns:
+        existing_ids = {
+            str(value).strip()
+            for value in df["Order ID"].dropna()
+            if str(value).strip()
+        }
+
+    order_id = str(order_id or "").strip()
+    if order_id and order_id not in existing_ids:
+        return order_id
+
+    next_id = generate_order_id(df, prefix)
+    while next_id in existing_ids:
+        head, sequence = next_id.rsplit("-", 1)
+        next_id = f"{head}-{int(sequence) + 1:03d}"
+    return next_id
 
 
 def compute_profit_row(row: pd.Series) -> pd.Series:
@@ -1058,11 +1122,10 @@ st.sidebar.caption("Tip: use 'Reload from source' if you changed the sheet in Go
 # Quick stats
 st.subheader("📊 Quick Stats")
 quick_df = dashboard_df(st.session_state.get("df", df))
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Real Orders", int(len(quick_df)))
-c2.metric("Revenue", money(quick_df["Total Price"].sum()))
-c3.metric("Parts Cost", money(quick_df["Part Cost"].sum()))
-c4.metric("Profit", money(quick_df["Profit"].sum()))
+stat_cols = st.columns(4)
+for col, (title, subtitle, window_df) in zip(stat_cols, quick_stat_windows(quick_df)):
+    with col:
+        render_quick_stat_card(title, subtitle, window_df)
 
 st.divider()
 
@@ -1110,11 +1173,13 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Add Order (form)")
     base = {c: "" for c in COLUMNS}
+    current_orders_df = st.session_state.get("df", df)
+    suggested_order_id = generate_order_id(current_orders_df)
 
     with st.form("order_form", clear_on_submit=True):
         a, b, c = st.columns(3)
         base["Order Status"] = a.selectbox("Order Status", ORDER_STATUS_OPTIONS, index=1)
-        base["Order ID"] = b.text_input("Order ID (e.g., 2026-001)")
+        base["Order ID"] = b.text_input("Order ID", value=suggested_order_id)
         base["Date"] = c.text_input("Date (e.g., 1.16.2026 or 2026-01-16)")
 
         d, e, f = st.columns(3)
@@ -1150,6 +1215,7 @@ with tabs[1]:
 
     if submitted:
         row = pd.Series(base)
+        row["Order ID"] = ensure_unique_order_id(row.get("Order ID", ""), current_orders_df)
         row["Last Updated"] = now_str()
 
         if append_order_with_feedback(row, st):
