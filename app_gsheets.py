@@ -285,22 +285,69 @@ def quick_stat_windows(dfx: pd.DataFrame):
     week_start = today - pd.Timedelta(days=today.weekday())
     biweekly_start = week_start - pd.Timedelta(days=7)
     month_start = today.replace(day=1)
+    previous_week_start = week_start - pd.Timedelta(days=7)
+    previous_biweekly_start = biweekly_start - pd.Timedelta(days=14)
+    previous_month_start = (month_start - pd.offsets.MonthBegin(1)).normalize()
 
     dated = dfx[dfx["Date Parsed"].notna()].copy()
     dated = dated[dated["Date Parsed"].dt.normalize() <= today]
+    date_values = dated["Date Parsed"].dt.normalize()
 
     return [
-        ("This Week", f"Since {week_start:%b %d}", dated[dated["Date Parsed"] >= week_start]),
-        ("Biweekly", f"Since {biweekly_start:%b %d}", dated[dated["Date Parsed"] >= biweekly_start]),
-        ("Month-to-Date", f"Since {month_start:%b %d}", dated[dated["Date Parsed"] >= month_start]),
-        ("Overall", "All real orders", dfx),
+        (
+            "This Week",
+            f"Since {week_start:%b %d}",
+            dated[date_values >= week_start],
+            dated[(date_values >= previous_week_start) & (date_values < week_start)],
+            "last full week",
+        ),
+        (
+            "Biweekly",
+            f"Since {biweekly_start:%b %d}",
+            dated[date_values >= biweekly_start],
+            dated[(date_values >= previous_biweekly_start) & (date_values < biweekly_start)],
+            "previous full biweek",
+        ),
+        (
+            "Month-to-Date",
+            f"Since {month_start:%b %d}",
+            dated[date_values >= month_start],
+            dated[(date_values >= previous_month_start) & (date_values < month_start)],
+            "last full month",
+        ),
+        ("Overall", "All real orders", dfx, None, ""),
     ]
 
 
-def render_quick_stat_card(title: str, subtitle: str, window_df: pd.DataFrame) -> None:
+def pct_of_previous(current_value, previous_value) -> str:
+    current_value = float(current_value or 0)
+    previous_value = float(previous_value or 0)
+    if previous_value == 0:
+        return "N/A" if current_value else "0%"
+    return f"{current_value / previous_value * 100:.0f}%"
+
+
+def render_quick_stat_card(
+    title: str,
+    subtitle: str,
+    window_df: pd.DataFrame,
+    previous_df: Optional[pd.DataFrame] = None,
+    previous_label: str = "",
+) -> None:
     revenue = window_df["Total Price"].sum()
     profit = window_df["Profit"].sum()
     part_cost = window_df["Part Cost"].sum()
+    previous_orders = 0 if previous_df is None else len(previous_df)
+    previous_revenue = 0 if previous_df is None else previous_df["Total Price"].sum()
+    previous_profit = 0 if previous_df is None else previous_df["Profit"].sum()
+    comparison_html = ""
+    if previous_df is not None:
+        comparison_html = (
+            f'<div class="tw-stat-compare-label">Compared with {html.escape(previous_label)}</div>'
+            f'<div class="tw-stat-compare"><span>Orders</span><strong>{pct_of_previous(len(window_df), previous_orders)}</strong></div>'
+            f'<div class="tw-stat-compare"><span>Revenue</span><strong>{pct_of_previous(revenue, previous_revenue)}</strong></div>'
+            f'<div class="tw-stat-compare"><span>Profit</span><strong>{pct_of_previous(profit, previous_profit)}</strong></div>'
+        )
 
     st.markdown(
         f"""
@@ -312,6 +359,7 @@ def render_quick_stat_card(title: str, subtitle: str, window_df: pd.DataFrame) -
             <div class="tw-stat-row"><span>Revenue</span><strong>{money(revenue)}</strong></div>
             <div class="tw-stat-row"><span>Profit</span><strong>{money(profit)}</strong></div>
             <div class="tw-stat-foot">Parts cost {money(part_cost)}</div>
+            {comparison_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -1181,6 +1229,28 @@ st.markdown(
     .tw-stat-foot {
         margin-top: 10px;
     }
+    .tw-stat-compare-label {
+        font-size: 12px;
+        font-weight: 650;
+        margin-top: 14px;
+        opacity: 0.82;
+    }
+    .tw-stat-compare {
+        align-items: baseline;
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+        margin-top: 6px;
+    }
+    .tw-stat-compare span {
+        font-size: 12px;
+        opacity: 0.72;
+    }
+    .tw-stat-compare strong {
+        font-size: 13px;
+        font-weight: 650;
+        white-space: nowrap;
+    }
     div[data-testid="stDataFrame"] {
         border-radius: 8px;
         overflow: hidden;
@@ -1291,9 +1361,9 @@ st.sidebar.caption("Tip: use 'Reload from source' if you changed the sheet in Go
 st.subheader("📊 Quick Stats")
 quick_df = dashboard_df(st.session_state.get("df", df))
 stat_cols = st.columns(4)
-for col, (title, subtitle, window_df) in zip(stat_cols, quick_stat_windows(quick_df)):
+for col, (title, subtitle, window_df, previous_df, previous_label) in zip(stat_cols, quick_stat_windows(quick_df)):
     with col:
-        render_quick_stat_card(title, subtitle, window_df)
+        render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label)
 
 st.divider()
 
