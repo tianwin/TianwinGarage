@@ -353,23 +353,23 @@ def style_order_table(data: pd.DataFrame):
         paid = str(row.get("Paid?", "") or "").strip().lower()
 
         for col in row.index:
-            style = "background-color: #ffffff; color: #1d1d1f; border-color: #f2f2f7;"
+            style = ""
             if col == "Order Status":
                 if status == "New":
-                    style = "background-color: #fff4d6; color: #7a4d00; font-weight: 600;"
+                    style = "font-weight: 650;"
                 elif status == "In Progress":
-                    style = "background-color: #e8f3ff; color: #0057b8; font-weight: 600;"
+                    style = "font-weight: 650;"
                 elif status == "Completed":
-                    style = "background-color: #eaf8ee; color: #1f7a3b; font-weight: 600;"
+                    style = "font-weight: 650;"
                 elif status == "Canceled":
-                    style = "background-color: #f5f5f7; color: #6e6e73; font-weight: 600;"
+                    style = "font-weight: 650; opacity: 0.72;"
                 elif status == "Warranty Follow-up":
-                    style = "background-color: #f1ecff; color: #5e3db2; font-weight: 600;"
+                    style = "font-weight: 650;"
             elif col == "Paid?":
                 if paid == "yes":
-                    style = "background-color: #eaf8ee; color: #1f7a3b; font-weight: 600;"
+                    style = "font-weight: 650;"
                 elif paid == "no":
-                    style = "background-color: #fff1f0; color: #b42318; font-weight: 600;"
+                    style = "font-weight: 650;"
             styles.append(style)
         return styles
 
@@ -1134,34 +1134,12 @@ st.set_page_config(page_title="Auto Repair Orders", layout="wide")
 st.markdown(
     """
     <style>
-    .stApp {
-        background: #f5f5f7;
-        color: #1d1d1f;
-    }
-    section[data-testid="stSidebar"] {
-        background: #ffffff;
-        border-right: 1px solid #e5e5ea;
-    }
-    div[data-testid="stMetric"] {
-        background: #ffffff;
-        border: 1px solid #e5e5ea;
-        border-radius: 8px;
-        padding: 14px 16px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    }
-    div[data-testid="stMetric"] label {
-        color: #6e6e73;
-    }
     .tw-stat-card {
-        background: #ffffff;
-        border: 1px solid #e5e5ea;
         border-radius: 8px;
         padding: 16px;
         min-height: 218px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     }
     .tw-stat-title {
-        color: #1d1d1f;
         font-size: 15px;
         font-weight: 700;
         line-height: 1.25;
@@ -1169,15 +1147,14 @@ st.markdown(
     .tw-stat-subtitle,
     .tw-stat-label,
     .tw-stat-foot {
-        color: #6e6e73;
         font-size: 12px;
         line-height: 1.35;
+        opacity: 0.72;
     }
     .tw-stat-subtitle {
         margin-top: 6px;
     }
     .tw-stat-primary {
-        color: #1d1d1f;
         font-size: 34px;
         font-weight: 650;
         line-height: 1;
@@ -1185,7 +1162,6 @@ st.markdown(
     }
     .tw-stat-row {
         align-items: baseline;
-        border-top: 1px solid #f2f2f7;
         display: flex;
         gap: 8px;
         justify-content: space-between;
@@ -1193,11 +1169,10 @@ st.markdown(
         padding-top: 10px;
     }
     .tw-stat-row span {
-        color: #6e6e73;
         font-size: 12px;
+        opacity: 0.72;
     }
     .tw-stat-row strong {
-        color: #1d1d1f;
         font-size: 15px;
         font-weight: 650;
         text-align: right;
@@ -1207,15 +1182,11 @@ st.markdown(
         margin-top: 10px;
     }
     div[data-testid="stDataFrame"] {
-        border: 1px solid #e5e5ea;
         border-radius: 8px;
         overflow: hidden;
-        background: #ffffff;
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
-        background: #ffffff;
-        border: 1px solid #e5e5ea;
         border-radius: 8px;
         padding: 4px;
     }
@@ -1223,19 +1194,9 @@ st.markdown(
         border-radius: 6px;
         padding: 8px 12px;
     }
-    .stTabs [aria-selected="true"] {
-        background: #f2f2f7;
-    }
-    .stTabs [aria-selected="true"] p {
-        color: #007aff;
-    }
-    .stTabs [data-baseweb="tab-highlight"] {
-        background-color: #007aff;
-    }
     div.stButton > button,
     div[data-testid="stFormSubmitButton"] button {
         border-radius: 8px;
-        border: 1px solid #d1d1d6;
     }
     </style>
     """,
