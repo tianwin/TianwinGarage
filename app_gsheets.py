@@ -327,6 +327,33 @@ def pct_of_previous(current_value, previous_value) -> str:
     return f"{current_value / previous_value * 100:.0f}%"
 
 
+def comparison_bar_html(label: str, current_value, previous_value, value_text: str) -> str:
+    current_value = float(current_value or 0)
+    previous_value = float(previous_value or 0)
+    if previous_value == 0:
+        percent_text = "N/A" if current_value else "0%"
+        bar_width = 0
+    else:
+        percent = current_value / previous_value * 100
+        percent_text = f"{percent:.0f}%"
+        bar_width = max(0, min(percent, 100))
+
+    return (
+        f'<div class="tw-stat-compare">'
+        f'<div class="tw-stat-compare-top">'
+        f'<span>{html.escape(label)}</span>'
+        f'<strong>{html.escape(value_text)}</strong>'
+        f'</div>'
+        f'<div class="tw-stat-bar-row">'
+        f'<div class="tw-stat-bar" aria-label="{html.escape(label)} {html.escape(percent_text)}">'
+        f'<div class="tw-stat-bar-fill" style="width: {bar_width:.0f}%;"></div>'
+        f'</div>'
+        f'<span class="tw-stat-bar-pct">{html.escape(percent_text)}</span>'
+        f'</div>'
+        f'</div>'
+    )
+
+
 def render_quick_stat_card(
     title: str,
     subtitle: str,
@@ -344,9 +371,9 @@ def render_quick_stat_card(
     if previous_df is not None:
         comparison_html = (
             f'<div class="tw-stat-compare-label">Compared with {html.escape(previous_label)}</div>'
-            f'<div class="tw-stat-compare"><span>Orders</span><strong>{pct_of_previous(len(window_df), previous_orders)}</strong></div>'
-            f'<div class="tw-stat-compare"><span>Revenue</span><strong>{pct_of_previous(revenue, previous_revenue)}</strong></div>'
-            f'<div class="tw-stat-compare"><span>Profit</span><strong>{pct_of_previous(profit, previous_profit)}</strong></div>'
+            f'{comparison_bar_html("Orders", len(window_df), previous_orders, str(len(window_df)))}'
+            f'{comparison_bar_html("Revenue", revenue, previous_revenue, money(revenue))}'
+            f'{comparison_bar_html("Profit", profit, previous_profit, money(profit))}'
         )
 
     st.markdown(
@@ -1236,19 +1263,45 @@ st.markdown(
         opacity: 0.82;
     }
     .tw-stat-compare {
-        align-items: baseline;
+        margin-top: 8px;
+    }
+    .tw-stat-compare-top,
+    .tw-stat-bar-row {
+        align-items: center;
         display: flex;
         gap: 8px;
         justify-content: space-between;
-        margin-top: 6px;
     }
-    .tw-stat-compare span {
+    .tw-stat-compare-top span {
         font-size: 12px;
         opacity: 0.72;
     }
-    .tw-stat-compare strong {
+    .tw-stat-compare-top strong {
         font-size: 13px;
         font-weight: 650;
+        white-space: nowrap;
+    }
+    .tw-stat-bar-row {
+        margin-top: 4px;
+    }
+    .tw-stat-bar {
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        flex: 1;
+        height: 8px;
+        opacity: 0.7;
+        overflow: hidden;
+    }
+    .tw-stat-bar-fill {
+        background: currentColor;
+        height: 100%;
+    }
+    .tw-stat-bar-pct {
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        min-width: 34px;
+        opacity: 0.72;
+        text-align: right;
         white-space: nowrap;
     }
     div[data-testid="stDataFrame"] {
