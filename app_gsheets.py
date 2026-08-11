@@ -370,10 +370,10 @@ def render_quick_stat_card(
     comparison_html = ""
     if previous_df is not None:
         comparison_html = (
-            f'<div class="tw-stat-compare-label">Compared with {html.escape(previous_label)}</div>'
-            f'{comparison_bar_html("Orders", len(window_df), previous_orders, str(len(window_df)))}'
-            f'{comparison_bar_html("Revenue", revenue, previous_revenue, money(revenue))}'
-            f'{comparison_bar_html("Profit", profit, previous_profit, money(profit))}'
+            f'<div class="tw-stat-compare-label">Previous: {html.escape(previous_label)}</div>'
+            f'{comparison_bar_html("Orders", len(window_df), previous_orders, str(previous_orders))}'
+            f'{comparison_bar_html("Revenue", revenue, previous_revenue, money(previous_revenue))}'
+            f'{comparison_bar_html("Profit", profit, previous_profit, money(previous_profit))}'
         )
 
     st.markdown(
