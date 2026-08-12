@@ -285,6 +285,9 @@ def quick_stat_windows(dfx: pd.DataFrame):
     week_start = today - pd.Timedelta(days=today.weekday())
     biweekly_start = week_start - pd.Timedelta(days=7)
     month_start = today.replace(day=1)
+    week_end = week_start + pd.Timedelta(days=6)
+    biweekly_end = biweekly_start + pd.Timedelta(days=13)
+    month_end = month_start + pd.offsets.MonthEnd(0)
     previous_week_start = week_start - pd.Timedelta(days=7)
     previous_biweekly_start = biweekly_start - pd.Timedelta(days=14)
     previous_month_start = (month_start - pd.offsets.MonthBegin(1)).normalize()
@@ -300,6 +303,7 @@ def quick_stat_windows(dfx: pd.DataFrame):
             dated[date_values >= week_start],
             dated[(date_values >= previous_week_start) & (date_values < week_start)],
             "last full week",
+            week_end,
         ),
         (
             "Biweekly",
@@ -307,6 +311,7 @@ def quick_stat_windows(dfx: pd.DataFrame):
             dated[date_values >= biweekly_start],
             dated[(date_values >= previous_biweekly_start) & (date_values < biweekly_start)],
             "previous full biweek",
+            biweekly_end,
         ),
         (
             "Month-to-Date",
@@ -314,9 +319,20 @@ def quick_stat_windows(dfx: pd.DataFrame):
             dated[date_values >= month_start],
             dated[(date_values >= previous_month_start) & (date_values < month_start)],
             "last full month",
+            month_end,
         ),
-        ("Overall", "All real orders", dfx, None, ""),
+        ("Overall", "All real orders", dfx, None, "", None),
     ]
+
+
+def days_left_label(end_date: Optional[pd.Timestamp]) -> str:
+    if end_date is None:
+        return ""
+
+    today = pd.Timestamp(datetime.now().date())
+    days_left = max(int((end_date.normalize() - today).days), 0)
+    day_word = "day" if days_left == 1 else "days"
+    return f"{days_left} {day_word} left · ends {end_date:%b %d}"
 
 
 def pct_of_previous(current_value, previous_value) -> str:
@@ -360,6 +376,7 @@ def render_quick_stat_card(
     window_df: pd.DataFrame,
     previous_df: Optional[pd.DataFrame] = None,
     previous_label: str = "",
+    end_date: Optional[pd.Timestamp] = None,
 ) -> None:
     revenue = window_df["Total Price"].sum()
     profit = window_df["Profit"].sum()
@@ -375,12 +392,17 @@ def render_quick_stat_card(
             f'{comparison_bar_html("Revenue", revenue, previous_revenue, money(previous_revenue))}'
             f'{comparison_bar_html("Profit", profit, previous_profit, money(previous_profit))}'
         )
+    days_left_html = ""
+    days_left = days_left_label(end_date)
+    if days_left:
+        days_left_html = f'<div class="tw-stat-days-left">{html.escape(days_left)}</div>'
 
     st.markdown(
         f"""
         <div class="tw-stat-card">
             <div class="tw-stat-title">{html.escape(title)}</div>
             <div class="tw-stat-subtitle">{html.escape(subtitle)}</div>
+            {days_left_html}
             <div class="tw-stat-primary">{int(len(window_df))}</div>
             <div class="tw-stat-label">Orders</div>
             <div class="tw-stat-row"><span>Revenue</span><strong>{money(revenue)}</strong></div>
@@ -1229,11 +1251,17 @@ st.markdown(
     .tw-stat-subtitle {
         margin-top: 6px;
     }
+    .tw-stat-days-left {
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.35;
+        margin-top: 6px;
+    }
     .tw-stat-primary {
         font-size: 34px;
         font-weight: 650;
         line-height: 1;
-        margin-top: 18px;
+        margin-top: 14px;
     }
     .tw-stat-row {
         align-items: baseline;
@@ -1414,9 +1442,12 @@ st.sidebar.caption("Tip: use 'Reload from source' if you changed the sheet in Go
 st.subheader("📊 Quick Stats")
 quick_df = dashboard_df(st.session_state.get("df", df))
 stat_cols = st.columns(4)
-for col, (title, subtitle, window_df, previous_df, previous_label) in zip(stat_cols, quick_stat_windows(quick_df)):
+for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in zip(
+    stat_cols,
+    quick_stat_windows(quick_df),
+):
     with col:
-        render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label)
+        render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label, end_date)
 
 st.divider()
 
