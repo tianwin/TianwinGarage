@@ -297,13 +297,13 @@ def payment_income_summary(dfx: pd.DataFrame) -> dict[str, dict[str, float]]:
 
 def render_payment_income_card(label: str, orders: int, total: float) -> None:
     st.markdown(
-        f"""
-        <div class="tw-payment-card">
-            <div class="tw-payment-title">{html.escape(label)}</div>
-            <div class="tw-payment-amount">{money(total)}</div>
-            <div class="tw-payment-foot">{orders} orders</div>
-        </div>
-        """,
+        (
+            f'<div class="tw-payment-card">'
+            f'<div class="tw-payment-title">{html.escape(label)}</div>'
+            f'<div class="tw-payment-amount">{money(total)}</div>'
+            f'<div class="tw-payment-foot">{orders} orders</div>'
+            f'</div>'
+        ),
         unsafe_allow_html=True,
     )
 
@@ -426,19 +426,19 @@ def render_quick_stat_card(
         days_left_html = f'<div class="tw-stat-days-left">{html.escape(days_left)}</div>'
 
     st.markdown(
-        f"""
-        <div class="tw-stat-card">
-            <div class="tw-stat-title">{html.escape(title)}</div>
-            <div class="tw-stat-subtitle">{html.escape(subtitle)}</div>
-            {days_left_html}
-            <div class="tw-stat-primary">{int(len(window_df))}</div>
-            <div class="tw-stat-label">Orders</div>
-            <div class="tw-stat-row"><span>Revenue</span><strong>{money(revenue)}</strong></div>
-            <div class="tw-stat-row"><span>Profit</span><strong>{money(profit)}</strong></div>
-            <div class="tw-stat-foot">Parts cost {money(part_cost)}</div>
-            {comparison_html}
-        </div>
-        """,
+        (
+            f'<div class="tw-stat-card">'
+            f'<div class="tw-stat-title">{html.escape(title)}</div>'
+            f'<div class="tw-stat-subtitle">{html.escape(subtitle)}</div>'
+            f'{days_left_html}'
+            f'<div class="tw-stat-primary">{int(len(window_df))}</div>'
+            f'<div class="tw-stat-label">Orders</div>'
+            f'<div class="tw-stat-row"><span>Revenue</span><strong>{money(revenue)}</strong></div>'
+            f'<div class="tw-stat-row"><span>Profit</span><strong>{money(profit)}</strong></div>'
+            f'<div class="tw-stat-foot">Parts cost {money(part_cost)}</div>'
+            f'{comparison_html}'
+            f'</div>'
+        ),
         unsafe_allow_html=True,
     )
 
