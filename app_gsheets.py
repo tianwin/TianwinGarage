@@ -92,7 +92,7 @@ COLUMNS = [
 
 ORDER_STATUS_OPTIONS = ["New", "In Progress", "Completed", "Canceled", "Warranty Follow-up"]
 PART_STATUS_OPTIONS = ["Ordered", "Arrived", "Installed", "Returned", "Backorder", "Canceled"]
-PAID_OPTIONS = ["Yes", "No"]
+PAID_OPTIONS = ["Yes", "No", "Cash", "Zelle"]
 
 REAL_ORDER_COLUMNS = [
     "Order Status",
@@ -270,6 +270,7 @@ def dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
     dfx["Paid Status"] = dfx["Paid?"].fillna("").astype(str).str.strip().replace("", "Unknown")
+    dfx["Is Paid"] = dfx["Paid Status"].apply(is_paid_value)
     dfx["Customer Display"] = dfx["Customer"].fillna("").astype(str).str.strip().replace("", "Missing customer")
     return dfx
 
@@ -278,6 +279,12 @@ def money(value) -> str:
     if pd.isna(value) or value == "":
         return "$0.00"
     return f"${float(value or 0):,.2f}"
+
+
+def is_paid_value(value) -> bool:
+    """Treat explicit payment methods as paid, not as unpaid/unknown."""
+    paid_value = str(value or "").strip().lower()
+    return paid_value in {"yes", "cash", "zelle"}
 
 
 def payment_income_summary(dfx: pd.DataFrame) -> dict[str, dict[str, float]]:
@@ -425,22 +432,27 @@ def render_quick_stat_card(
     if days_left:
         days_left_html = f'<div class="tw-stat-days-left">{html.escape(days_left)}</div>'
 
-    st.markdown(
-        f"""
-        <div class="tw-stat-card">
-            <div class="tw-stat-title">{html.escape(title)}</div>
-            <div class="tw-stat-subtitle">{html.escape(subtitle)}</div>
-            {days_left_html}
-            <div class="tw-stat-primary">{int(len(window_df))}</div>
-            <div class="tw-stat-label">Orders</div>
-            <div class="tw-stat-row"><span>Revenue</span><strong>{money(revenue)}</strong></div>
-            <div class="tw-stat-row"><span>Profit</span><strong>{money(profit)}</strong></div>
-            <div class="tw-stat-foot">Parts cost {money(part_cost)}</div>
-            {comparison_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
+    card_parts = [
+        '<div class="tw-stat-card">',
+        f'<div class="tw-stat-title">{html.escape(title)}</div>',
+        f'<div class="tw-stat-subtitle">{html.escape(subtitle)}</div>',
+    ]
+    if days_left_html:
+        card_parts.append(days_left_html)
+    card_parts.extend(
+        [
+            f'<div class="tw-stat-primary">{int(len(window_df))}</div>',
+            '<div class="tw-stat-label">Orders</div>',
+            f'<div class="tw-stat-row"><span>Revenue</span><strong>{money(revenue)}</strong></div>',
+            f'<div class="tw-stat-row"><span>Profit</span><strong>{money(profit)}</strong></div>',
+            f'<div class="tw-stat-foot">Parts cost {money(part_cost)}</div>',
+        ]
     )
+    if comparison_html:
+        card_parts.append(comparison_html)
+    card_parts.append("</div>")
+
+    st.markdown("".join(card_parts), unsafe_allow_html=True)
 
 
 def order_overview_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
@@ -491,7 +503,7 @@ def style_order_table(data: pd.DataFrame):
                 elif status == "Warranty Follow-up":
                     style = "font-weight: 650;"
             elif col == "Paid?":
-                if paid == "yes":
+                if is_paid_value(paid):
                     style = "font-weight: 650;"
                 elif paid == "no":
                     style = "font-weight: 650;"
@@ -1638,7 +1650,7 @@ with tabs[3]:
         total_part_cost = dfx["Part Cost"].sum()
         avg_ticket = total_revenue / len(dfx) if len(dfx) else 0
         margin_pct = (total_profit / total_revenue * 100) if total_revenue else 0
-        unpaid_value = dfx.loc[dfx["Paid Status"].ne("Yes"), "Total Price"].sum()
+        unpaid_value = dfx.loc[~dfx["Is Paid"], "Total Price"].sum()
         completed_orders = int(dfx["Order Status"].eq("Completed").sum())
 
         k1, k2, k3, k4, k5, k6 = st.columns(6)
@@ -1780,9 +1792,7 @@ with tabs[3]:
                 )
 
             st.markdown("### Open / Unpaid Work")
-            open_work = dfx[
-                dfx["Order Status"].ne("Completed") | dfx["Paid Status"].ne("Yes")
-            ].copy()
+            open_work = dfx[dfx["Order Status"].ne("Completed") | ~dfx["Is Paid"]].copy()
             open_cols = [
                 "Date",
                 "Customer",
