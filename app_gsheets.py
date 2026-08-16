@@ -280,6 +280,34 @@ def money(value) -> str:
     return f"${float(value or 0):,.2f}"
 
 
+def payment_income_summary(dfx: pd.DataFrame) -> dict[str, dict[str, float]]:
+    summary = {
+        "Cash": {"orders": 0, "total": 0.0},
+        "Zelle": {"orders": 0, "total": 0.0},
+    }
+    if dfx is None or dfx.empty or "Paid Status" not in dfx.columns:
+        return summary
+
+    for payment_type in summary:
+        payment_rows = dfx[dfx["Paid Status"].str.lower().eq(payment_type.lower())]
+        summary[payment_type]["orders"] = int(len(payment_rows))
+        summary[payment_type]["total"] = float(payment_rows["Total Price"].sum())
+    return summary
+
+
+def render_payment_income_card(label: str, orders: int, total: float) -> None:
+    st.markdown(
+        f"""
+        <div class="tw-payment-card">
+            <div class="tw-payment-title">{html.escape(label)}</div>
+            <div class="tw-payment-amount">{money(total)}</div>
+            <div class="tw-payment-foot">{orders} orders</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def quick_stat_windows(dfx: pd.DataFrame):
     today = pd.Timestamp(datetime.now().date())
     week_start = today - pd.Timedelta(days=today.weekday())
@@ -1332,6 +1360,28 @@ st.markdown(
         text-align: right;
         white-space: nowrap;
     }
+    .tw-payment-card {
+        border-radius: 8px;
+        padding: 14px 16px;
+        min-height: 102px;
+    }
+    .tw-payment-title {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.25;
+    }
+    .tw-payment-amount {
+        font-size: 26px;
+        font-weight: 700;
+        line-height: 1;
+        margin-top: 12px;
+    }
+    .tw-payment-foot {
+        font-size: 12px;
+        line-height: 1.35;
+        margin-top: 10px;
+        opacity: 0.72;
+    }
     div[data-testid="stDataFrame"] {
         border-radius: 8px;
         overflow: hidden;
@@ -1448,6 +1498,21 @@ for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in 
 ):
     with col:
         render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label, end_date)
+
+payment_summary = payment_income_summary(quick_df)
+cash_total = payment_summary["Cash"]["total"]
+zelle_total = payment_summary["Zelle"]["total"]
+cash_orders = payment_summary["Cash"]["orders"]
+zelle_orders = payment_summary["Zelle"]["orders"]
+
+st.markdown("#### Payment Income")
+payment_cols = st.columns(3)
+with payment_cols[0]:
+    render_payment_income_card("Cash Income", cash_orders, cash_total)
+with payment_cols[1]:
+    render_payment_income_card("Zelle Income", zelle_orders, zelle_total)
+with payment_cols[2]:
+    render_payment_income_card("Cash + Zelle", cash_orders + zelle_orders, cash_total + zelle_total)
 
 st.divider()
 
