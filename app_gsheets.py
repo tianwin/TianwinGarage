@@ -286,14 +286,22 @@ def payment_income_summary(dfx: pd.DataFrame) -> dict[str, dict[str, float]]:
     summary = {
         "Cash": {"orders": 0, "total": 0.0},
         "Zelle": {"orders": 0, "total": 0.0},
+        "Unclassified": {"orders": 0, "total": 0.0},
     }
     if dfx is None or dfx.empty or "Paid Status" not in dfx.columns:
         return summary
 
-    for payment_type in summary:
-        payment_rows = dfx[dfx["Paid Status"].str.lower().eq(payment_type.lower())]
-        summary[payment_type]["orders"] = int(len(payment_rows))
-        summary[payment_type]["total"] = float(payment_rows["Total Price"].sum())
+    payment_status = dfx["Paid Status"].fillna("").astype(str).str.strip().str.lower()
+    cash_rows = dfx[payment_status.eq("cash")]
+    zelle_rows = dfx[payment_status.eq("zelle")]
+    unclassified_rows = dfx[~payment_status.isin(["cash", "zelle", "no", "unpaid"])]
+
+    summary["Cash"]["orders"] = int(len(cash_rows))
+    summary["Cash"]["total"] = float(cash_rows["Total Price"].sum())
+    summary["Zelle"]["orders"] = int(len(zelle_rows))
+    summary["Zelle"]["total"] = float(zelle_rows["Total Price"].sum())
+    summary["Unclassified"]["orders"] = int(len(unclassified_rows))
+    summary["Unclassified"]["total"] = float(unclassified_rows["Total Price"].sum())
     return summary
 
 
@@ -1504,8 +1512,10 @@ for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in 
 payment_summary = payment_income_summary(quick_df)
 cash_total = payment_summary["Cash"]["total"]
 zelle_total = payment_summary["Zelle"]["total"]
+unclassified_total = payment_summary["Unclassified"]["total"]
 cash_orders = payment_summary["Cash"]["orders"]
 zelle_orders = payment_summary["Zelle"]["orders"]
+unclassified_orders = payment_summary["Unclassified"]["orders"]
 
 st.markdown("#### Payment Income")
 payment_cols = st.columns(3)
@@ -1514,7 +1524,7 @@ with payment_cols[0]:
 with payment_cols[1]:
     render_payment_income_card("Zelle Income", zelle_orders, zelle_total)
 with payment_cols[2]:
-    render_payment_income_card("Cash + Zelle", cash_orders + zelle_orders, cash_total + zelle_total)
+    render_payment_income_card("Unclassified", unclassified_orders, unclassified_total)
 
 st.divider()
 
