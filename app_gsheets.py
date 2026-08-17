@@ -43,6 +43,7 @@ import html
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -66,6 +67,7 @@ except Exception:  # pragma: no cover
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 EXPORT_DIR = DATA_DIR / "exports"
+APP_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 COLUMNS = [
     "Order Status",
@@ -133,8 +135,16 @@ def ensure_dirs() -> None:
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def app_now() -> datetime:
+    return datetime.now(APP_TIMEZONE)
+
+
+def app_today() -> pd.Timestamp:
+    return pd.Timestamp(app_now().date())
+
+
 def now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return app_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def clean_price_value(value):
@@ -319,7 +329,7 @@ def render_payment_income_card(label: str, orders: int, total: float) -> None:
 
 
 def quick_stat_windows(dfx: pd.DataFrame):
-    today = pd.Timestamp(datetime.now().date())
+    today = app_today()
     week_start = today - pd.Timedelta(days=today.weekday())
     biweekly_start = week_start - pd.Timedelta(days=7)
     month_start = today.replace(day=1)
@@ -367,7 +377,7 @@ def days_left_label(end_date: Optional[pd.Timestamp]) -> str:
     if end_date is None:
         return ""
 
-    today = pd.Timestamp(datetime.now().date())
+    today = app_today()
     days_left = max(int((end_date.normalize() - today).days), 0)
     day_word = "day" if days_left == 1 else "days"
     return f"{days_left} {day_word} left · ends {end_date:%b %d}"
@@ -456,7 +466,7 @@ def render_quick_stat_card(
 def order_overview_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
     dfx = df.copy()
     parsed_dates = pd.to_datetime(dfx["Date"].apply(parse_order_date), errors="coerce")
-    today = pd.Timestamp(datetime.now().date())
+    today = app_today()
     start_date = today - pd.Timedelta(days=days - 1)
     normalized_dates = parsed_dates.dt.normalize()
     recent_mask = parsed_dates.notna() & (normalized_dates >= start_date) & (normalized_dates <= today)
@@ -894,7 +904,7 @@ def append_order_with_feedback(row: pd.Series, target=st) -> bool:
 
 
 def generate_order_id(df: pd.DataFrame, prefix: str = "RO") -> str:
-    date_part = datetime.now().strftime("%Y%m%d")
+    date_part = app_now().strftime("%Y%m%d")
     pattern = re.compile(rf"^{re.escape(prefix)}-{date_part}-(\d+)$")
     max_sequence = 0
 
@@ -954,7 +964,7 @@ def compute_profit_row(row: pd.Series) -> pd.Series:
 
 def export_excel(df: pd.DataFrame) -> Path:
     ensure_dirs()
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = app_now().strftime("%Y%m%d_%H%M%S")
     out = EXPORT_DIR / f"orders_export_{ts}.xlsx"
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Orders")
@@ -1461,7 +1471,7 @@ if st.sidebar.button("📦 Export Excel"):
 if st.sidebar.button("⬇️ Export CSV"):
     ensure_dirs()
     df2 = real_orders_df(df)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = app_now().strftime("%Y%m%d_%H%M%S")
     out = EXPORT_DIR / f"orders_export_{ts}.csv"
     df2.to_csv(out, index=False, encoding="utf-8-sig")
     st.sidebar.success(f"Exported: {out.name}")
@@ -1891,7 +1901,7 @@ with tabs[4]:
             # Download button for HTML file
             order_id = selected_order.get('Order ID', 'N/A')
             safe_order_id = "".join(c for c in str(order_id) if c.isalnum() or c in ('-', '_')).strip() or "order"
-            filename = f"work_order_{safe_order_id}_{datetime.now().strftime('%Y%m%d')}.html"
+            filename = f"work_order_{safe_order_id}_{app_now().strftime('%Y%m%d')}.html"
             
             st.download_button(
                 label="📥 Download Work Order (HTML)",
