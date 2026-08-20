@@ -141,6 +141,141 @@ PRICE_COLUMNS = ["Labor", "Trip Fee", "Part Cost", "Part Price", "Total Price", 
 NUMERIC_COLUMNS = ["Labor", "Labor Time", "Trip Fee", "Part Cost", "Part Price", "Mileage"]
 FORMULA_COLUMNS = ["Total Price", "Profit"]
 
+PRICE_LIST_ITEMS = [
+    {
+        "Service": "Brake pads only (one axle)",
+        "Terms": ["pad"],
+        "Exclude": ["rotor", "fluid", "wiper"],
+        "Independent Low": 150,
+        "Independent High": 300,
+        "Dealer Low": 230,
+        "Dealer High": 450,
+        "Fallback Price": 150,
+        "Source": "RepairPal / 2026 brake guides",
+        "Notes": "Pads only, front or rear axle. Euro/luxury can be higher.",
+    },
+    {
+        "Service": "Brake pads + rotors (one axle)",
+        "Terms": ["pad", "rotor"],
+        "Exclude": ["front and rear", "all four"],
+        "Independent Low": 300,
+        "Independent High": 600,
+        "Dealer Low": 450,
+        "Dealer High": 850,
+        "Fallback Price": 425,
+        "Source": "RepairPal / 2026 brake guides",
+        "Notes": "Use one axle price; quote higher for BMW/MINI/heavy SUV.",
+    },
+    {
+        "Service": "Brake pads + rotors (front and rear)",
+        "Terms": ["front", "rear", "pad", "rotor"],
+        "Exclude": [],
+        "Independent Low": 600,
+        "Independent High": 1100,
+        "Dealer Low": 900,
+        "Dealer High": 1600,
+        "Fallback Price": 800,
+        "Source": "2026 brake guides",
+        "Notes": "All four corners, pads and rotors.",
+    },
+    {
+        "Service": "Brake fluid flush",
+        "Terms": ["brake fluid"],
+        "Exclude": [],
+        "Independent Low": 80,
+        "Independent High": 120,
+        "Dealer Low": 150,
+        "Dealer High": 225,
+        "Fallback Price": 120,
+        "Source": "2026 brake-fluid guides",
+        "Notes": "Pressure/machine flush; add to brake job only when due.",
+    },
+    {
+        "Service": "Battery replacement",
+        "Terms": ["battery"],
+        "Exclude": [],
+        "Independent Low": 180,
+        "Independent High": 350,
+        "Dealer Low": 250,
+        "Dealer High": 500,
+        "Fallback Price": 325,
+        "Source": "RepairPal / KBB / 2026 battery guides",
+        "Notes": "AGM, trunk battery, and BMS registration cost more.",
+    },
+    {
+        "Service": "Spark plugs / ignition coil",
+        "Terms": ["spark"],
+        "Exclude": [],
+        "Independent Low": 281,
+        "Independent High": 394,
+        "Dealer Low": 365,
+        "Dealer High": 550,
+        "Fallback Price": 450,
+        "Source": "RepairPal spark plug estimate",
+        "Notes": "Coils, intake removal, or V6/V8 access can raise price.",
+    },
+    {
+        "Service": "CV axle replacement (one side)",
+        "Terms": ["cv axle"],
+        "Exclude": [],
+        "Independent Low": 250,
+        "Independent High": 600,
+        "Dealer Low": 360,
+        "Dealer High": 830,
+        "Fallback Price": 400,
+        "Source": "RepairPal / 2026 CV axle guides",
+        "Notes": "Aftermarket axle estimate; OEM axle can be much higher.",
+    },
+    {
+        "Service": "Sway bar link replacement",
+        "Terms": ["sway bar"],
+        "Exclude": [],
+        "Independent Low": 150,
+        "Independent High": 400,
+        "Dealer Low": 250,
+        "Dealer High": 500,
+        "Fallback Price": 175,
+        "Source": "2026 stabilizer-link guides",
+        "Notes": "Clarify one side vs pair; rusty hardware adds time.",
+    },
+    {
+        "Service": "Oil change add-on",
+        "Terms": ["oil change"],
+        "Exclude": [],
+        "Independent Low": 55,
+        "Independent High": 120,
+        "Dealer Low": 120,
+        "Dealer High": 190,
+        "Fallback Price": 90,
+        "Source": "RepairPal / 2026 common repair guides",
+        "Notes": "Synthetic oil; shields/panels can add time.",
+    },
+    {
+        "Service": "Wiper blade replacement",
+        "Terms": ["wiper"],
+        "Exclude": [],
+        "Independent Low": 60,
+        "Independent High": 75,
+        "Dealer Low": 60,
+        "Dealer High": 75,
+        "Fallback Price": 40,
+        "Source": "KBB repair estimate",
+        "Notes": "Parts-only customer supplied jobs may be lower.",
+    },
+    {
+        "Service": "Check engine light diagnostic",
+        "Terms": ["check engine"],
+        "Exclude": [],
+        "Independent Low": 50,
+        "Independent High": 150,
+        "Dealer Low": 130,
+        "Dealer High": 170,
+        "Fallback Price": 100,
+        "Source": "2026 diagnostic benchmarks",
+        "Notes": "Basic code read is not full diagnosis.",
+    },
+]
+
 
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -328,6 +463,105 @@ def payment_income_summary(dfx: pd.DataFrame) -> dict[str, dict[str, float]]:
     summary["Unclassified"]["orders"] = int(len(unclassified_rows))
     summary["Unclassified"]["total"] = float(unclassified_rows["Total Price"].sum())
     return summary
+
+
+def price_list_history_text(row: pd.Series) -> str:
+    fields = [
+        row.get("Job / Notes", ""),
+        row.get("Part Name", ""),
+        row.get("Part Notes", ""),
+        row.get("Vehicle (Year Make Model)", ""),
+    ]
+    return " ".join(str(value or "") for value in fields).lower()
+
+
+def price_list_item_mask(dfx: pd.DataFrame, item: dict) -> pd.Series:
+    text = dfx.apply(price_list_history_text, axis=1)
+    mask = pd.Series(True, index=dfx.index)
+    for term in item.get("Terms", []):
+        mask = mask & text.str.contains(re.escape(term.lower()), na=False)
+    for term in item.get("Exclude", []):
+        mask = mask & ~text.str.contains(re.escape(term.lower()), na=False)
+    return mask
+
+
+def format_range(low: float, high: float, prefix: str = "$") -> str:
+    if pd.isna(low) or pd.isna(high):
+        return ""
+    if float(low) == float(high):
+        return f"{prefix}{float(low):,.0f}"
+    return f"{prefix}{float(low):,.0f}-{prefix}{float(high):,.0f}"
+
+
+def round_price(value: float) -> float:
+    if pd.isna(value):
+        return 0.0
+    return float(round(float(value) / 5) * 5)
+
+
+def build_price_list_df(df: pd.DataFrame) -> pd.DataFrame:
+    dfx = dashboard_df(df)
+    if dfx.empty:
+        dfx = pd.DataFrame(columns=COLUMNS + ["Date Parsed"])
+
+    rows = []
+    for item in PRICE_LIST_ITEMS:
+        matched = dfx.loc[price_list_item_mask(dfx, item)].copy() if not dfx.empty else dfx.copy()
+        matched_totals = pd.to_numeric(matched.get("Total Price", pd.Series(dtype=float)), errors="coerce")
+        priced_matched = matched.loc[matched_totals.fillna(0) > 0].copy()
+        totals = matched_totals.dropna()
+        totals = totals[totals > 0]
+        history_count = int(len(totals))
+        history_median = round_price(totals.median()) if history_count else None
+        history_low = round_price(totals.min()) if history_count else None
+        history_high = round_price(totals.max()) if history_count else None
+
+        if history_count >= 2:
+            suggested = history_median
+            confidence = "History"
+        elif history_count == 1:
+            suggested = max(history_median, item["Fallback Price"])
+            confidence = "History + guess"
+        else:
+            suggested = item["Fallback Price"]
+            confidence = "Online guess"
+
+        latest_date = ""
+        if history_count and "Date Parsed" in priced_matched.columns:
+            latest = priced_matched["Date Parsed"].max()
+            latest_date = "" if pd.isna(latest) else latest.strftime("%Y-%m-%d")
+
+        vehicles = ""
+        if history_count and "Vehicle (Year Make Model)" in priced_matched.columns:
+            vehicle_counts = (
+                priced_matched["Vehicle (Year Make Model)"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .replace("", pd.NA)
+                .dropna()
+                .value_counts()
+            )
+            vehicles = ", ".join(vehicle_counts.head(2).index.tolist())
+
+        rows.append(
+            {
+                "Service": item["Service"],
+                "Suggested Price": suggested,
+                "History Jobs": history_count,
+                "History Median": history_median,
+                "History Range": format_range(history_low, history_high) if history_count else "",
+                "Last Done": latest_date,
+                "Common Vehicles": vehicles,
+                "Independent Shop": format_range(item["Independent Low"], item["Independent High"]),
+                "Dealer": format_range(item["Dealer Low"], item["Dealer High"]),
+                "Confidence": confidence,
+                "Source": item["Source"],
+                "Notes": item["Notes"],
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def render_payment_income_card(label: str, orders: int, total: float) -> None:
@@ -1620,7 +1854,7 @@ with payment_cols[2]:
 
 st.divider()
 
-tabs = st.tabs(["🧾 Orders Table", "📋 All Details", "➕ Add Order", "📈 Stats", "🖨️ Print Work Order"])
+tabs = st.tabs(["🧾 Orders Table", "📋 All Details", "➕ Add Order", "💵 Price List", "📈 Stats", "🖨️ Print Work Order"])
 
 with tabs[0]:
     st.subheader("Orders Table")
@@ -1725,6 +1959,25 @@ with tabs[2]:
             st.rerun()
 
 with tabs[3]:
+    st.subheader("Price List")
+    price_list_df = build_price_list_df(st.session_state.get("df", df))
+    st.dataframe(
+        price_list_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Suggested Price": st.column_config.NumberColumn("Suggested Price", format="$%.0f"),
+            "History Median": st.column_config.NumberColumn("History Median", format="$%.0f"),
+            "History Jobs": st.column_config.NumberColumn("History Jobs", format="%d"),
+        },
+    )
+    st.caption(
+        "Online comparison ranges are broad planning estimates from RepairPal, KBB, AAA, "
+        "and 2026 repair-price guides. Adjust quotes for vehicle, parts brand, rust, access, "
+        "diagnosis, and local labor."
+    )
+
+with tabs[4]:
     st.subheader("Business Dashboard")
     raw_dashboard_df = st.session_state.get("df", df)
     dfx = dashboard_df(raw_dashboard_df)
@@ -1935,7 +2188,7 @@ with tabs[3]:
             ]
             st.dataframe(dfx.loc[issue_mask, issue_cols], use_container_width=True, hide_index=True)
 
-with tabs[4]:
+with tabs[5]:
     st.subheader("🖨️ Print Work Order")
     st.caption("Select an order to generate a customer-facing work order for printing.")
     
