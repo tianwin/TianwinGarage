@@ -463,6 +463,35 @@ def render_quick_stat_card(
     )
 
 
+def parse_order_datetime_values(df: pd.DataFrame) -> pd.Series:
+    dates = pd.to_datetime(df["Date"].apply(parse_order_date), errors="coerce")
+    times = pd.to_datetime(
+        df["Time"].fillna("").astype(str).str.strip(),
+        errors="coerce",
+    )
+    time_offsets = pd.to_timedelta(times.dt.hour.fillna(0), unit="h") + pd.to_timedelta(
+        times.dt.minute.fillna(0),
+        unit="m",
+    )
+    return dates.dt.normalize() + time_offsets
+
+
+def sort_orders_by_datetime(df: pd.DataFrame, ascending: bool = False) -> pd.DataFrame:
+    if df is None or df.empty or "Date" not in df.columns or "Time" not in df.columns:
+        return df
+
+    dfx = df.copy()
+    dfx["_Order Datetime"] = parse_order_datetime_values(dfx)
+    dfx["_Has Order Datetime"] = dfx["_Order Datetime"].notna()
+    dfx = dfx.sort_values(
+        ["_Has Order Datetime", "_Order Datetime"],
+        ascending=[False, ascending],
+        na_position="last",
+        kind="mergesort",
+    )
+    return dfx.drop(columns=["_Order Datetime", "_Has Order Datetime"])
+
+
 def order_overview_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
     dfx = df.copy()
     parsed_dates = pd.to_datetime(dfx["Date"].apply(parse_order_date), errors="coerce")
@@ -476,15 +505,7 @@ def order_overview_df(df: pd.DataFrame, days: int = 30) -> pd.DataFrame:
     )
     mask = recent_mask | future_mask | active_status
     dfx = dfx.loc[mask].copy()
-    dfx["_Date Parsed"] = parsed_dates.loc[dfx.index]
-    dfx["_Has Valid Date"] = dfx["_Date Parsed"].notna()
-    dfx["_Date Distance"] = (dfx["_Date Parsed"].dt.normalize() - today).abs()
-    dfx = dfx.sort_values(
-        ["_Has Valid Date", "_Date Distance", "_Date Parsed", "Time"],
-        ascending=[False, True, True, True],
-        na_position="last",
-    )
-    return dfx.drop(columns=["_Date Parsed", "_Has Valid Date", "_Date Distance"])
+    return sort_orders_by_datetime(dfx)
 
 
 def table_height(row_count: int) -> int:
@@ -1510,7 +1531,8 @@ st.sidebar.caption("Tip: use 'Reload from source' if you changed the sheet in Go
 
 # Quick stats
 st.subheader("📊 Quick Stats")
-quick_df = dashboard_df(st.session_state.get("df", df))
+display_df = sort_orders_by_datetime(st.session_state.get("df", df))
+quick_df = dashboard_df(display_df)
 stat_cols = st.columns(4)
 for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in zip(
     stat_cols,
@@ -1543,7 +1565,7 @@ tabs = st.tabs(["🧾 Orders Table", "📋 All Details", "➕ Add Order", "📈 
 with tabs[0]:
     st.subheader("Orders Table")
     st.caption("Past 30 days, plus future appointments and active work.")
-    recent_df = order_overview_df(df, days=30)
+    recent_df = order_overview_df(display_df, days=30)
     summary_cols = [col for col in ORDER_SUMMARY_COLUMNS if col in recent_df.columns]
     recent_summary = recent_df[summary_cols].copy()
     recent_height = table_height(len(recent_df))
@@ -1561,10 +1583,10 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("All Detail Orders")
     st.caption("Full editable sheet. Save writes back to Google Sheets.")
-    detail_height = table_height(len(df))
+    detail_height = table_height(len(display_df))
 
     edited = st.data_editor(
-        df,
+        display_df,
         use_container_width=True,
         num_rows="dynamic",
         height=detail_height,
