@@ -443,7 +443,6 @@ def money(value) -> str:
 
 
 WEEKLY_PROFIT_TARGET = 1000.0
-WEEKLY_RENT = 1250.0 * 12 / 52
 BUSINESS_SCORE_WEIGHTS = {
     "Operating Profit": 0.40,
     "Revenue": 0.20,
@@ -487,7 +486,7 @@ def weekly_business_summary(dfx: pd.DataFrame) -> pd.DataFrame:
         )
         .sort_values("Week")
     )
-    weekly["Operating Profit"] = weekly["Gross Profit"] - WEEKLY_RENT
+    weekly["Operating Profit"] = weekly["Gross Profit"]
     weekly["Operating Margin"] = (
         weekly["Operating Profit"].div(weekly["Revenue"].replace(0, pd.NA)).fillna(0) * 100
     )
@@ -2068,7 +2067,7 @@ with tabs[4]:
         if current_rows.empty:
             current = pd.Series({
                 "Week": current_week, "Orders": 0, "Paid Orders": 0, "Revenue": 0.0,
-                "Gross Profit": 0.0, "Operating Profit": -WEEKLY_RENT,
+                "Gross Profit": 0.0, "Operating Profit": 0.0,
                 "Operating Margin": 0.0, "Average Ticket": 0.0, "Unpaid Value": 0.0,
             })
         else:
@@ -2078,7 +2077,7 @@ with tabs[4]:
         projected_revenue = float(current["Revenue"]) / elapsed_days * 7
         projected_orders = float(current["Orders"]) / elapsed_days * 7
         projected_gross_profit = float(current["Gross Profit"]) / elapsed_days * 7
-        projected_profit = projected_gross_profit - WEEKLY_RENT
+        projected_profit = projected_gross_profit
         projected_margin = projected_profit / projected_revenue * 100 if projected_revenue else 0.0
         target_attainment = projected_profit / WEEKLY_PROFIT_TARGET * 100
         profit_gap = max(0.0, WEEKLY_PROFIT_TARGET - float(current["Operating Profit"]))
@@ -2128,7 +2127,7 @@ with tabs[4]:
 
         st.caption(
             f"Current week: {current_week:%b %d}–{current_week + pd.Timedelta(days=6):%b %d, %Y} · "
-            f"Cash-basis revenue · Weekly rent allocation: {money(WEEKLY_RENT)} · "
+            f"Cash-basis revenue and profit · "
             f"Ignored {blank_rows} blank sheet rows"
         )
 
@@ -2148,7 +2147,7 @@ with tabs[4]:
         with profit_col:
             previous_profit = float(previous["Operating Profit"]) if previous is not None else 0.0
             st.metric(
-                "Operating Profit",
+                "Profit",
                 money(current["Operating Profit"]),
                 change_text(float(current["Operating Profit"]), previous_profit),
             )
@@ -2168,7 +2167,7 @@ with tabs[4]:
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Paid Revenue", money(current["Revenue"]), change_text(float(current["Revenue"]), float(previous["Revenue"]) if previous is not None else 0))
         k2.metric("Orders", int(current["Orders"]), change_text(float(current["Orders"]), float(previous["Orders"]) if previous is not None else 0))
-        k3.metric("Operating Margin", f"{float(current['Operating Margin']):.1f}%", change_text(float(current["Operating Margin"]), float(previous["Operating Margin"]) if previous is not None else 0))
+        k3.metric("Profit Margin", f"{float(current['Operating Margin']):.1f}%", change_text(float(current["Operating Margin"]), float(previous["Operating Margin"]) if previous is not None else 0))
         k4.metric("Average Ticket", money(current["Average Ticket"]), change_text(float(current["Average Ticket"]), float(previous["Average Ticket"]) if previous is not None else 0))
 
         st.markdown("### Weekly Profit Pace")
@@ -2178,7 +2177,7 @@ with tabs[4]:
         pace = pd.DataFrame({"Date": pd.date_range(current_week, periods=7, freq="D")})
         daily_profit = current_week_orders.groupby("Date Parsed")["Daily Gross Profit"].sum()
         pace["Daily Gross Profit"] = pace["Date"].map(daily_profit).fillna(0)
-        pace["Actual"] = pace["Daily Gross Profit"].cumsum() - WEEKLY_RENT
+        pace["Actual"] = pace["Daily Gross Profit"].cumsum()
         pace.loc[pace["Date"] > today, "Actual"] = pd.NA
         pace["Target Pace"] = WEEKLY_PROFIT_TARGET * (pace.index + 1) / 7
         pace["Projected"] = pd.NA
@@ -2189,7 +2188,7 @@ with tabs[4]:
             .mark_line(point=True, strokeWidth=3)
             .encode(
                 x=alt.X("Date:T", title=None, axis=alt.Axis(format="%a")),
-                y=alt.Y("Profit:Q", title="Operating Profit ($)"),
+                y=alt.Y("Profit:Q", title="Profit ($)"),
                 color=alt.Color(
                     "Metric:N",
                     scale=alt.Scale(domain=["Actual", "Target Pace", "Projected"], range=["#2563eb", "#94a3b8", "#16a34a"]),
@@ -2207,7 +2206,7 @@ with tabs[4]:
         else:
             profit_delta = float(current["Operating Profit"]) - float(previous["Operating Profit"])
             direction = "above" if profit_delta >= 0 else "below"
-            insights.append(f"Current operating profit is {money(abs(profit_delta))} {direction} the previous active week.")
+            insights.append(f"Current profit is {money(abs(profit_delta))} {direction} the previous active week.")
             if float(current["Revenue"]) > float(previous["Revenue"]) and float(current["Operating Margin"]) < float(previous["Operating Margin"]):
                 insights.append("Revenue increased, but operating margin declined; review parts cost and job pricing.")
             if int(current["Orders"]) > int(previous["Orders"]) and float(current["Average Ticket"]) < float(previous["Average Ticket"]):
@@ -2226,9 +2225,9 @@ with tabs[4]:
         with st.expander("How the score is calculated"):
             st.markdown(
                 f"""
-The score uses projected full-week performance for the current Monday–Sunday period. Revenue is recognized only when the **Paid** field contains a payment method. Operating profit equals paid-order profit less **{money(WEEKLY_RENT)} weekly rent**.
+The score uses projected full-week performance for the current Monday–Sunday period. Revenue and profit are recognized only when the **Paid** field contains a payment method. No rent, labor, or processing-fee allocation is deducted.
 
-- Operating Profit vs {money(WEEKLY_PROFIT_TARGET)} target: **40%**
+- Profit vs {money(WEEKLY_PROFIT_TARGET)} target: **40%**
 - Revenue vs active-week historical median: **20%**
 - Orders vs active-week historical median: **15%**
 - Operating Margin vs active-week historical median: **15%**
@@ -2267,10 +2266,10 @@ Zero-order weeks are excluded. Each component is capped at 100 points. Status ba
                         "Recognized Part Cost": "Parts Cost",
                     })
                 )
-                weekly["Operating Profit"] = weekly["Gross Profit"] - WEEKLY_RENT
+                weekly["Profit"] = weekly["Gross Profit"]
                 weekly_long = weekly.melt(
                     id_vars="Week",
-                    value_vars=["Revenue", "Operating Profit", "Parts Cost"],
+                    value_vars=["Revenue", "Profit", "Parts Cost"],
                     var_name="Metric",
                     value_name="Amount",
                 )
@@ -2299,8 +2298,7 @@ Zero-order weeks are excluded. Each component is capped at 100 points. Status ba
                         .sort_index()
                         .round(2)
                     )
-                    active_weeks_per_month = valid_dates.groupby("Month")["Week"].nunique()
-                    monthly["Operating Profit"] = monthly["Recognized Gross Profit"] - active_weeks_per_month * WEEKLY_RENT
+                    monthly["Profit"] = monthly["Recognized Gross Profit"]
                     monthly = monthly.drop(columns=["Recognized Gross Profit"])
                     monthly.index = monthly.index.strftime("%Y-%m")
                     st.markdown("### Monthly Summary")
