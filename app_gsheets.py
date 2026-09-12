@@ -832,6 +832,136 @@ def table_height(row_count: int) -> int:
     return max(180, 38 + (row_count + 1) * 35)
 
 
+def render_echart(option: dict, key: str, height: int = 380, tooltip_formatter_js: str | None = None) -> None:
+    option_json = json.dumps(option, ensure_ascii=False)
+    formatter_line = ""
+    if tooltip_formatter_js:
+        formatter_line = f"if (option_{key}.tooltip) option_{key}.tooltip.formatter = {tooltip_formatter_js};"
+    st.components.v1.html(
+        f"""
+        <div id="{html.escape(key)}" style="width:100%;height:{height}px;"></div>
+        <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+        <script>
+        const chartEl_{key} = document.getElementById("{html.escape(key)}");
+        const chart_{key} = echarts.init(chartEl_{key});
+        const option_{key} = {option_json};
+        {formatter_line}
+        chart_{key}.setOption(option_{key});
+        window.addEventListener("resize", () => chart_{key}.resize());
+        </script>
+        """,
+        height=height + 24,
+    )
+
+
+def parse_order_time_value(time_value):
+    if pd.isna(time_value) or str(time_value).strip() == "":
+        return pd.NaT
+    return pd.to_datetime(str(time_value).strip(), errors="coerce")
+
+
+def latest_orders_df(dfx: pd.DataFrame, limit: int = 5) -> pd.DataFrame:
+    if dfx.empty:
+        return dfx.copy()
+    latest = dfx.copy()
+    latest["_Time Parsed"] = latest["Time"].apply(parse_order_time_value)
+    latest["_Time Minutes"] = latest["_Time Parsed"].dt.hour.fillna(-1) * 60 + latest["_Time Parsed"].dt.minute.fillna(0)
+    latest["_Row Sequence"] = latest.index
+    latest = latest.sort_values(
+        ["Date Parsed", "_Time Minutes", "_Row Sequence"],
+        ascending=[False, False, False],
+        na_position="last",
+        kind="mergesort",
+    ).head(limit)
+    return latest.drop(columns=["_Time Parsed", "_Time Minutes", "_Row Sequence"], errors="ignore")
+
+
+def paid_method_category(value: str) -> str:
+    status = str(value or "").strip().lower()
+    if status == "cash":
+        return "Cash"
+    if status == "zelle":
+        return "Zelle"
+    if status in ["yes", "unknown"]:
+        return "Paid - Method Unknown"
+    if status in ["", "no", "unpaid", "not paid", "pending"]:
+        return "Unpaid"
+    return "Other Paid"
+
+
+def mask_customer_label(value: str) -> str:
+    label = str(value or "").strip()
+    digits = re.sub(r"\D", "", label)
+    if len(digits) >= 7 and len(digits) >= max(7, len(label.replace(" ", "")) - 3):
+        return f"Phone ending {digits[-4:]}"
+    return label
+
+
+def selected_analysis_df(dfx: pd.DataFrame, range_option: str, current_week: pd.Timestamp) -> pd.DataFrame:
+    if dfx.empty:
+        return dfx.copy()
+    active_weeks = sorted(dfx.loc[dfx["Date Parsed"].notna(), "Week"].dropna().unique())
+    if range_option == "This Week":
+        selected_weeks = [current_week]
+    elif range_option == "Last 4 Active Weeks":
+        selected_weeks = active_weeks[-4:]
+    elif range_option == "Last 12 Active Weeks":
+        selected_weeks = active_weeks[-12:]
+    else:
+        return dfx.copy()
+    return dfx[dfx["Week"].isin(selected_weeks)].copy()
+
+
+def prepare_cash_basis_df(dfx: pd.DataFrame) -> pd.DataFrame:
+    out = dfx.copy()
+    out["Is Paid"] = paid_order_mask(out)
+    out["Payment Method"] = out["Paid Status"].apply(paid_method_category)
+    out["Collected Revenue"] = out["Total Price"].where(out["Is Paid"], 0.0)
+    out["Recorded Contribution"] = out["Profit"].where(out["Is Paid"], 0.0)
+    out["Recognized Part Cost"] = out["Part Cost"].where(out["Is Paid"], 0.0)
+    return out
+
+
+def continuous_weekly_summary(dfx: pd.DataFrame) -> pd.DataFrame:
+    valid = dfx[dfx["Date Parsed"].notna()].copy()
+    columns = ["Week", "Collected Revenue", "Paid Orders", "Average Ticket"]
+    if valid.empty:
+        return pd.DataFrame(columns=columns)
+    weekly = (
+        valid.groupby("Week", as_index=False)
+        .agg(
+            **{
+                "Collected Revenue": ("Collected Revenue", "sum"),
+                "Paid Orders": ("Is Paid", "sum"),
+            }
+        )
+        .sort_values("Week")
+    )
+    all_weeks = pd.DataFrame({"Week": pd.date_range(weekly["Week"].min(), weekly["Week"].max(), freq="W-MON")})
+    weekly = all_weeks.merge(weekly, on="Week", how="left").fillna({"Collected Revenue": 0, "Paid Orders": 0})
+    weekly["Average Ticket"] = weekly["Collected Revenue"].div(weekly["Paid Orders"].replace(0, pd.NA)).fillna(0)
+    return weekly
+
+
+def data_quality_df(dfx: pd.DataFrame) -> pd.DataFrame:
+    total = max(1, len(dfx))
+    checks = {
+        "Date": dfx["Date Parsed"].notna(),
+        "Time": dfx["Time"].fillna("").astype(str).str.strip().ne(""),
+        "Customer": dfx["Customer"].fillna("").astype(str).str.strip().ne(""),
+        "Vehicle": dfx["Vehicle (Year Make Model)"].fillna("").astype(str).str.strip().ne(""),
+        "Address": dfx["Address"].fillna("").astype(str).str.strip().ne(""),
+        "Labor Time": pd.to_numeric(dfx["Labor Time"], errors="coerce").fillna(0).gt(0),
+        "Part Cost": pd.to_numeric(dfx["Part Cost"], errors="coerce").fillna(0).gt(0),
+        "Part Price": pd.to_numeric(dfx["Part Price"], errors="coerce").fillna(0).gt(0),
+        "Payment Classification": ~dfx["Paid Status"].fillna("").astype(str).str.strip().str.lower().isin(["", "yes", "unknown"]),
+        "Service Category": ~dfx["Service Category"].isin(["Uncategorized", "Other"]),
+    }
+    return pd.DataFrame(
+        [{"Field": field, "Coverage": round(float(mask.sum()) / total * 100, 1)} for field, mask in checks.items()]
+    ).sort_values("Coverage")
+
+
 def style_order_table(data: pd.DataFrame):
     def cell_styles(row):
         styles = []
@@ -1894,55 +2024,336 @@ st.sidebar.divider()
 st.sidebar.caption("Tip: use 'Reload from source' if you changed the sheet in Google.")
 
 
-# Quick stats
-st.subheader("📊 Quick Stats")
 display_df = sort_orders_by_datetime(st.session_state.get("df", df))
 quick_df = dashboard_df(display_df)
-stat_cols = st.columns(4)
-for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in zip(
-    stat_cols,
-    quick_stat_windows(quick_df),
-):
-    with col:
-        render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label, end_date)
 
-payment_summary = payment_income_summary(quick_df)
-cash_total = payment_summary["Cash"]["total"]
-zelle_total = payment_summary["Zelle"]["total"]
-unclassified_total = payment_summary["Unclassified"]["total"]
-cash_orders = payment_summary["Cash"]["orders"]
-zelle_orders = payment_summary["Zelle"]["orders"]
-unclassified_orders = payment_summary["Unclassified"]["orders"]
-
-st.markdown("#### Payment Income")
-payment_cols = st.columns(3)
-with payment_cols[0]:
-    render_payment_income_card("Cash Income", cash_orders, cash_total)
-with payment_cols[1]:
-    render_payment_income_card("Zelle Income", zelle_orders, zelle_total)
-with payment_cols[2]:
-    render_payment_income_card("Unclassified", unclassified_orders, unclassified_total)
-
-st.divider()
-
-tabs = st.tabs(["🧾 Orders Table", "📋 All Details", "➕ Add Order", "💵 Price List", "📈 Stats", "🖨️ Print Work Order"])
+tabs = st.tabs(["🏠 Primary", "📋 All Details", "➕ Add Order", "💵 Price List", "🖨️ Print Work Order"])
 
 with tabs[0]:
-    st.subheader("Orders Table")
-    st.caption("Past 30 days, plus future appointments and active work.")
-    recent_df = order_overview_df(display_df, days=30)
-    summary_cols = [col for col in ORDER_SUMMARY_COLUMNS if col in recent_df.columns]
-    recent_summary = recent_df[summary_cols].copy()
-    recent_height = table_height(len(recent_df))
-
-    if recent_df.empty:
-        st.info("No dated orders found in the past 30 days.")
+    st.subheader("Latest Orders")
+    dfx = prepare_cash_basis_df(quick_df)
+    latest_orders = latest_orders_df(dfx, limit=5)
+    latest_columns = [
+        "Date",
+        "Time",
+        "Customer",
+        "Vehicle (Year Make Model)",
+        "Job / Notes",
+        "Total Price",
+        "Paid?",
+    ]
+    latest_preview = latest_orders[[col for col in latest_columns if col in latest_orders.columns]].copy()
+    latest_preview = latest_preview.rename(columns={"Vehicle (Year Make Model)": "Vehicle"})
+    if latest_preview.empty:
+        st.info("No real orders found yet.")
     else:
         st.dataframe(
-            style_order_table(recent_summary),
+            latest_preview,
             use_container_width=True,
             hide_index=True,
-            height=recent_height,
+            column_config={"Total Price": st.column_config.NumberColumn("Total Price", format="$%.2f")},
+        )
+
+    st.divider()
+    st.subheader("Business Overview")
+
+    if dfx.empty:
+        st.info("No real orders found yet.")
+    else:
+        today = app_today()
+        current_week = today - pd.Timedelta(days=today.weekday())
+        current_week_df = dfx[dfx["Week"].eq(current_week)].copy()
+        identified_customers = dfx[
+            dfx["Customer"].fillna("").astype(str).str.strip().ne("")
+        ].copy()
+        repeat_customers_all = int((identified_customers["Customer"].value_counts() > 1).sum())
+
+        collected_revenue = float(dfx["Collected Revenue"].sum())
+        paid_orders = int(dfx["Is Paid"].sum())
+        average_ticket = collected_revenue / paid_orders if paid_orders else 0.0
+        recorded_contribution = float(dfx["Recorded Contribution"].sum())
+        current_week_revenue = float(current_week_df["Collected Revenue"].sum())
+        current_week_orders = int(current_week_df["Is Paid"].sum())
+        current_week_contribution = float(current_week_df["Recorded Contribution"].sum())
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Collected Revenue", money(collected_revenue))
+        c2.metric("Paid Orders", paid_orders)
+        c3.metric("Average Ticket", money(average_ticket))
+        c4.metric("Recorded Contribution", money(recorded_contribution))
+
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric("Repeat Customers", repeat_customers_all)
+        c6.metric("Current Week Revenue", money(current_week_revenue))
+        c7.metric("Current Week Orders", current_week_orders)
+        c8.metric("Current Week Contribution", money(current_week_contribution))
+
+        range_option = st.selectbox(
+            "Analysis range",
+            ["This Week", "Last 4 Active Weeks", "Last 12 Active Weeks", "All History"],
+            index=1,
+            key="primary_analysis_range",
+        )
+        analysis_dfx = prepare_cash_basis_df(selected_analysis_df(quick_df, range_option, current_week))
+
+        st.markdown("### Weekly Performance")
+        weekly = continuous_weekly_summary(analysis_dfx)
+        if weekly.empty:
+            st.info("No valid dates available for weekly performance.")
+        else:
+            week_labels = weekly["Week"].dt.strftime("%Y-%m-%d").tolist()
+            render_echart(
+                {
+                    "tooltip": {"trigger": "axis"},
+                    "legend": {},
+                    "dataZoom": [{"type": "inside"}, {"type": "slider"}],
+                    "grid": {"left": 64, "right": 64, "top": 48, "bottom": 72},
+                    "xAxis": {"type": "category", "data": week_labels},
+                    "yAxis": [
+                        {"type": "value", "name": "Dollars", "axisLabel": {"formatter": "${value}"}},
+                        {"type": "value", "name": "Orders"},
+                    ],
+                    "series": [
+                        {
+                            "name": "Collected Revenue",
+                            "type": "bar",
+                            "data": weekly["Collected Revenue"].round(2).tolist(),
+                            "itemStyle": {"color": "#2563eb"},
+                        },
+                        {
+                            "name": "Paid Orders",
+                            "type": "line",
+                            "yAxisIndex": 1,
+                            "data": weekly["Paid Orders"].astype(int).tolist(),
+                            "smooth": True,
+                            "itemStyle": {"color": "#16a34a"},
+                        },
+                        {
+                            "name": "Average Ticket",
+                            "type": "line",
+                            "data": weekly["Average Ticket"].round(2).tolist(),
+                            "smooth": True,
+                            "itemStyle": {"color": "#d97706"},
+                        },
+                    ],
+                },
+                key="primary_weekly_performance",
+                height=430,
+            )
+
+        st.markdown("### Revenue Calendar")
+        calendar_source = analysis_dfx[analysis_dfx["Date Parsed"].notna()].copy()
+        if calendar_source.empty:
+            st.info("No dated paid orders available for the revenue calendar.")
+        else:
+            years = sorted(calendar_source["Date Parsed"].dt.year.dropna().astype(int).unique().tolist())
+            selected_year = st.selectbox("Calendar year", years, index=len(years) - 1, key="primary_calendar_year") if len(years) > 1 else years[0]
+            year_df = calendar_source[calendar_source["Date Parsed"].dt.year.eq(selected_year)].copy()
+            daily = (
+                year_df.groupby("Date Parsed")
+                .agg(
+                    Orders=("Date Parsed", "size"),
+                    **{
+                        "Collected Revenue": ("Collected Revenue", "sum"),
+                        "Cash": ("Collected Revenue", lambda s: s[year_df.loc[s.index, "Payment Method"].eq("Cash")].sum()),
+                        "Zelle": ("Collected Revenue", lambda s: s[year_df.loc[s.index, "Payment Method"].eq("Zelle")].sum()),
+                        "Other Paid": ("Collected Revenue", lambda s: s[year_df.loc[s.index, "Payment Method"].isin(["Paid - Method Unknown", "Other Paid"])].sum()),
+                    },
+                )
+                .reset_index()
+            )
+            calendar_data = [
+                [
+                    row["Date Parsed"].strftime("%Y-%m-%d"),
+                    round(float(row["Collected Revenue"]), 2),
+                    int(row["Orders"]),
+                    round(float(row["Cash"]), 2),
+                    round(float(row["Zelle"]), 2),
+                    round(float(row["Other Paid"]), 2),
+                ]
+                for _, row in daily.iterrows()
+            ]
+            max_revenue = max([item[1] for item in calendar_data] or [0])
+            render_echart(
+                {
+                    "tooltip": {"trigger": "item"},
+                    "visualMap": {
+                        "min": 0,
+                        "max": max(1, max_revenue),
+                        "orient": "horizontal",
+                        "left": "center",
+                        "top": 0,
+                        "dimension": 1,
+                    },
+                    "calendar": {
+                        "top": 56,
+                        "left": 28,
+                        "right": 28,
+                        "cellSize": ["auto", 18],
+                        "range": str(selected_year),
+                        "itemStyle": {"borderWidth": 0.5},
+                        "yearLabel": {"show": False},
+                    },
+                    "series": [{"type": "heatmap", "coordinateSystem": "calendar", "data": calendar_data}],
+                },
+                key="primary_revenue_calendar",
+                height=360,
+                tooltip_formatter_js="""function (params) {
+                    const v = params.value;
+                    return `${v[0]}<br/>Orders: ${v[2]}<br/>Collected Revenue: $${Number(v[1]).toFixed(2)}<br/>Cash: $${Number(v[3]).toFixed(2)}<br/>Zelle: $${Number(v[4]).toFixed(2)}<br/>Other paid: $${Number(v[5]).toFixed(2)}`;
+                }""",
+            )
+
+        left, right = st.columns(2)
+        with left:
+            st.markdown("### Service Analysis")
+            service = (
+                analysis_dfx.groupby("Service Category", as_index=False)
+                .agg(
+                    Orders=("Service Category", "size"),
+                    **{"Collected Revenue": ("Collected Revenue", "sum")},
+                )
+                .sort_values("Collected Revenue", ascending=True)
+            )
+            service["Average Ticket"] = service["Collected Revenue"].div(service["Orders"].replace(0, pd.NA)).fillna(0)
+            service_data = [
+                {
+                    "value": round(float(row["Collected Revenue"]), 2),
+                    "orders": int(row["Orders"]),
+                    "averageTicket": round(float(row["Average Ticket"]), 2),
+                }
+                for _, row in service.iterrows()
+            ]
+            render_echart(
+                {
+                    "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                    "grid": {"left": 120, "right": 24, "top": 24, "bottom": 32},
+                    "xAxis": {"type": "value", "axisLabel": {"formatter": "${value}"}},
+                    "yAxis": {"type": "category", "data": service["Service Category"].tolist()},
+                    "series": [
+                        {
+                            "name": "Collected Revenue",
+                            "type": "bar",
+                            "data": service_data,
+                            "itemStyle": {"color": "#2563eb"},
+                        }
+                    ],
+                },
+                key="primary_service_analysis",
+                height=360,
+                tooltip_formatter_js="""function (params) {
+                    const p = params[0];
+                    const d = p.data;
+                    return `${p.name}<br/>Orders: ${d.orders}<br/>Collected Revenue: $${Number(d.value).toFixed(2)}<br/>Average Ticket: $${Number(d.averageTicket).toFixed(2)}`;
+                }""",
+            )
+
+        with right:
+            st.markdown("### Payment Analysis")
+            payment = (
+                analysis_dfx[analysis_dfx["Payment Method"].ne("Unpaid")]
+                .groupby("Payment Method", as_index=False)["Collected Revenue"]
+                .sum()
+                .sort_values("Collected Revenue", ascending=True)
+            )
+            if payment.empty:
+                st.info("No paid orders in selected range.")
+            else:
+                render_echart(
+                    {
+                        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                        "grid": {"left": 150, "right": 24, "top": 24, "bottom": 32},
+                        "xAxis": {"type": "value", "axisLabel": {"formatter": "${value}"}},
+                        "yAxis": {"type": "category", "data": payment["Payment Method"].tolist()},
+                        "series": [
+                            {
+                                "name": "Collected Revenue",
+                                "type": "bar",
+                                "data": payment["Collected Revenue"].round(2).tolist(),
+                                "itemStyle": {"color": "#16a34a"},
+                            }
+                        ],
+                    },
+                    key="primary_payment_analysis",
+                    height=360,
+                )
+
+        st.markdown("### Customer Analysis")
+        customers = analysis_dfx[
+            analysis_dfx["Customer"].fillna("").astype(str).str.strip().ne("")
+        ].copy()
+        if customers.empty:
+            st.info("No identified customers in selected range.")
+        else:
+            customers["Customer Masked"] = customers["Customer"].apply(mask_customer_label)
+            customer_summary = (
+                customers.groupby("Customer Masked", as_index=False)
+                .agg(Orders=("Customer Masked", "size"), **{"Collected Revenue": ("Collected Revenue", "sum")})
+                .sort_values("Collected Revenue", ascending=False)
+            )
+            total_customer_revenue = float(customer_summary["Collected Revenue"].sum())
+            repeat_customers = int((customers["Customer"].value_counts() > 1).sum())
+            repeat_names = customers["Customer"].value_counts()
+            repeat_revenue = float(customers[customers["Customer"].isin(repeat_names[repeat_names > 1].index)]["Collected Revenue"].sum())
+            top5_revenue = float(customer_summary.head(5)["Collected Revenue"].sum())
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Repeat Customers", repeat_customers)
+            m2.metric("Repeat Customer Revenue %", f"{(repeat_revenue / total_customer_revenue * 100 if total_customer_revenue else 0):.1f}%")
+            m3.metric("Top 5 Customer Revenue %", f"{(top5_revenue / total_customer_revenue * 100 if total_customer_revenue else 0):.1f}%")
+
+            pareto = customer_summary.head(15).copy()
+            pareto["Cumulative %"] = pareto["Collected Revenue"].cumsum().div(total_customer_revenue).mul(100).round(1)
+            render_echart(
+                {
+                    "tooltip": {"trigger": "axis"},
+                    "legend": {},
+                    "grid": {"left": 64, "right": 64, "top": 48, "bottom": 96},
+                    "xAxis": {"type": "category", "data": pareto["Customer Masked"].tolist(), "axisLabel": {"rotate": 35}},
+                    "yAxis": [
+                        {"type": "value", "name": "Revenue", "axisLabel": {"formatter": "${value}"}},
+                        {"type": "value", "name": "%", "min": 0, "max": 100, "axisLabel": {"formatter": "{value}%"}},
+                    ],
+                    "series": [
+                        {
+                            "name": "Collected Revenue",
+                            "type": "bar",
+                            "data": pareto["Collected Revenue"].round(2).tolist(),
+                            "itemStyle": {"color": "#2563eb"},
+                        },
+                        {
+                            "name": "Cumulative Revenue %",
+                            "type": "line",
+                            "yAxisIndex": 1,
+                            "data": pareto["Cumulative %"].tolist(),
+                            "smooth": True,
+                            "itemStyle": {"color": "#d97706"},
+                        },
+                    ],
+                },
+                key="primary_customer_pareto",
+                height=410,
+            )
+
+        st.markdown("### Data Quality")
+        quality = data_quality_df(analysis_dfx)
+        render_echart(
+            {
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "grid": {"left": 170, "right": 36, "top": 24, "bottom": 32},
+                "xAxis": {"type": "value", "min": 0, "max": 100, "axisLabel": {"formatter": "{value}%"}},
+                "yAxis": {"type": "category", "data": quality["Field"].tolist()},
+                "series": [
+                    {
+                        "name": "Coverage",
+                        "type": "bar",
+                        "data": quality["Coverage"].tolist(),
+                        "label": {"show": True, "position": "right", "formatter": "{c}%"},
+                        "itemStyle": {"color": "#64748b"},
+                    }
+                ],
+            },
+            key="primary_data_quality",
+            height=320,
         )
 
 with tabs[1]:
@@ -2049,376 +2460,6 @@ with tabs[3]:
     )
 
 with tabs[4]:
-    st.subheader("Business Performance Dashboard")
-    raw_dashboard_df = st.session_state.get("df", df)
-    dfx = dashboard_df(raw_dashboard_df)
-    blank_rows = len(raw_dashboard_df) - len(dfx)
-
-    if dfx.empty:
-        st.info("No real orders found yet.")
-    else:
-        today = pd.Timestamp.now(tz=APP_TIMEZONE).tz_localize(None).normalize()
-        current_week = today - pd.Timedelta(days=today.weekday())
-        elapsed_days = today.weekday() + 1
-        remaining_days = 7 - elapsed_days
-        weekly_all = weekly_business_summary(dfx)
-        historical = weekly_all[weekly_all["Week"] < current_week].copy()
-        current_rows = weekly_all[weekly_all["Week"].eq(current_week)]
-        if current_rows.empty:
-            current = pd.Series({
-                "Week": current_week, "Orders": 0, "Paid Orders": 0, "Revenue": 0.0,
-                "Gross Profit": 0.0, "Operating Profit": 0.0,
-                "Operating Margin": 0.0, "Average Ticket": 0.0, "Unpaid Value": 0.0,
-            })
-        else:
-            current = current_rows.iloc[0]
-        previous = historical.iloc[-1] if not historical.empty else None
-
-        projected_revenue = float(current["Revenue"]) / elapsed_days * 7
-        projected_orders = float(current["Orders"]) / elapsed_days * 7
-        projected_gross_profit = float(current["Gross Profit"]) / elapsed_days * 7
-        projected_profit = projected_gross_profit
-        projected_margin = projected_profit / projected_revenue * 100 if projected_revenue else 0.0
-        target_attainment = projected_profit / WEEKLY_PROFIT_TARGET * 100
-        profit_gap = max(0.0, WEEKLY_PROFIT_TARGET - float(current["Operating Profit"]))
-        required_daily = profit_gap / remaining_days if remaining_days else profit_gap
-
-        benchmarks = historical[["Revenue", "Orders", "Operating Margin", "Average Ticket"]].median()
-        score_values = {
-            "Operating Profit": max(0.0, min(100.0, target_attainment)),
-            "Revenue": 50.0,
-            "Orders": 50.0,
-            "Operating Margin": 50.0,
-            "Average Ticket": 50.0,
-        }
-        projected_for_score = {
-            "Revenue": projected_revenue,
-            "Orders": projected_orders,
-            "Operating Margin": projected_margin,
-            "Average Ticket": float(current["Average Ticket"]),
-        }
-        for metric, value in projected_for_score.items():
-            baseline = float(benchmarks.get(metric, 0) or 0)
-            if baseline > 0:
-                score_values[metric] = max(0.0, min(100.0, value / baseline * 100))
-        business_score = sum(score_values[key] * weight for key, weight in BUSINESS_SCORE_WEIGHTS.items())
-        status_label, status_color = score_status(business_score)
-
-        range_option = st.selectbox(
-            "Analysis range",
-            ["This Week", "Last 4 Active Weeks", "Last 12 Active Weeks", "All History"],
-            index=1,
-            help="An active week contains at least one order. Zero-order weeks are excluded.",
-        )
-        active_weeks = weekly_all["Week"].tolist()
-        if range_option == "This Week":
-            selected_weeks = [current_week]
-        elif range_option == "Last 4 Active Weeks":
-            selected_weeks = active_weeks[-4:]
-        elif range_option == "Last 12 Active Weeks":
-            selected_weeks = active_weeks[-12:]
-        else:
-            selected_weeks = active_weeks
-        analysis_dfx = dfx[dfx["Week"].isin(selected_weeks)].copy()
-        analysis_dfx["Is Paid"] = paid_order_mask(analysis_dfx)
-        analysis_dfx["Recognized Revenue"] = analysis_dfx["Total Price"].where(analysis_dfx["Is Paid"], 0.0)
-        analysis_dfx["Recognized Gross Profit"] = analysis_dfx["Profit"].where(analysis_dfx["Is Paid"], 0.0)
-        analysis_dfx["Recognized Part Cost"] = analysis_dfx["Part Cost"].where(analysis_dfx["Is Paid"], 0.0)
-
-        st.caption(
-            f"Current week: {current_week:%b %d}–{current_week + pd.Timedelta(days=6):%b %d, %Y} · "
-            f"Cash-basis revenue and profit · "
-            f"Ignored {blank_rows} blank sheet rows"
-        )
-
-        score_col, profit_col, forecast_col, action_col = st.columns([1.15, 1, 1, 1])
-        with score_col:
-            st.markdown(
-                f"""
-                <div style="border:1px solid {status_color}55;border-radius:12px;padding:16px;
-                     background:linear-gradient(90deg,{status_color}22 {business_score:.0f}%,transparent {business_score:.0f}%);">
-                    <div style="font-size:13px;font-weight:700;">WEEKLY BUSINESS SCORE</div>
-                    <div style="font-size:38px;font-weight:750;margin-top:8px;">{business_score:.0f}<span style="font-size:18px;">/100</span></div>
-                    <div style="color:{status_color};font-weight:700;">{status_label}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with profit_col:
-            previous_profit = float(previous["Operating Profit"]) if previous is not None else 0.0
-            st.metric(
-                "Profit",
-                money(current["Operating Profit"]),
-                change_text(float(current["Operating Profit"]), previous_profit),
-            )
-            st.caption(f"Target: {money(WEEKLY_PROFIT_TARGET)} · {max(0, float(current['Operating Profit']) / WEEKLY_PROFIT_TARGET * 100):.0f}% earned")
-        with forecast_col:
-            st.metric("Projected Weekly Profit", money(projected_profit), f"{target_attainment:.0f}% of target")
-            st.caption("On track to hit target" if projected_profit >= WEEKLY_PROFIT_TARGET else f"Projected shortfall: {money(WEEKLY_PROFIT_TARGET - projected_profit)}")
-        with action_col:
-            if float(current["Operating Profit"]) >= WEEKLY_PROFIT_TARGET:
-                st.metric("Required / Remaining Day", money(0), "Target achieved")
-            elif remaining_days:
-                st.metric("Required / Remaining Day", money(required_daily), f"{remaining_days} days remaining")
-            else:
-                st.metric("Weekly Target Gap", money(profit_gap), "Week complete")
-            st.caption(f"Unpaid work: {money(current['Unpaid Value'])}")
-
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Paid Revenue", money(current["Revenue"]), change_text(float(current["Revenue"]), float(previous["Revenue"]) if previous is not None else 0))
-        k2.metric("Orders", int(current["Orders"]), change_text(float(current["Orders"]), float(previous["Orders"]) if previous is not None else 0))
-        k3.metric("Profit Margin", f"{float(current['Operating Margin']):.1f}%", change_text(float(current["Operating Margin"]), float(previous["Operating Margin"]) if previous is not None else 0))
-        k4.metric("Average Ticket", money(current["Average Ticket"]), change_text(float(current["Average Ticket"]), float(previous["Average Ticket"]) if previous is not None else 0))
-
-        st.markdown("### Weekly Profit Pace")
-        current_week_orders = dfx[dfx["Week"].eq(current_week) & dfx["Date Parsed"].notna()].copy()
-        current_week_orders["Is Paid"] = paid_order_mask(current_week_orders)
-        current_week_orders["Daily Gross Profit"] = current_week_orders["Profit"].where(current_week_orders["Is Paid"], 0.0)
-        pace = pd.DataFrame({"Date": pd.date_range(current_week, periods=7, freq="D")})
-        daily_profit = current_week_orders.groupby("Date Parsed")["Daily Gross Profit"].sum()
-        pace["Daily Gross Profit"] = pace["Date"].map(daily_profit).fillna(0)
-        pace["Actual"] = pace["Daily Gross Profit"].cumsum()
-        pace.loc[pace["Date"] > today, "Actual"] = pd.NA
-        pace["Target Pace"] = WEEKLY_PROFIT_TARGET * (pace.index + 1) / 7
-        pace["Projected"] = pd.NA
-        pace.loc[pace.index[-1], "Projected"] = projected_profit
-        pace_long = pace.melt("Date", ["Actual", "Target Pace", "Projected"], "Metric", "Profit").dropna()
-        pace_chart = (
-            alt.Chart(pace_long)
-            .mark_line(point=True, strokeWidth=3)
-            .encode(
-                x=alt.X("Date:T", title=None, axis=alt.Axis(format="%a")),
-                y=alt.Y("Profit:Q", title="Profit ($)"),
-                color=alt.Color(
-                    "Metric:N",
-                    scale=alt.Scale(domain=["Actual", "Target Pace", "Projected"], range=["#2563eb", "#94a3b8", "#16a34a"]),
-                    legend=alt.Legend(orient="top"),
-                ),
-                tooltip=[alt.Tooltip("Date:T", format="%b %d"), "Metric:N", alt.Tooltip("Profit:Q", format="$,.2f")],
-            )
-            .properties(height=260)
-        )
-        st.altair_chart(pace_chart, use_container_width=True)
-
-        insights = []
-        if previous is None:
-            insights.append("No previous active week is available yet; historical comparisons will appear after another active week.")
-        else:
-            profit_delta = float(current["Operating Profit"]) - float(previous["Operating Profit"])
-            direction = "above" if profit_delta >= 0 else "below"
-            insights.append(f"Current profit is {money(abs(profit_delta))} {direction} the previous active week.")
-            if float(current["Revenue"]) > float(previous["Revenue"]) and float(current["Operating Margin"]) < float(previous["Operating Margin"]):
-                insights.append("Revenue increased, but operating margin declined; review parts cost and job pricing.")
-            if int(current["Orders"]) > int(previous["Orders"]) and float(current["Average Ticket"]) < float(previous["Average Ticket"]):
-                insights.append("Order volume increased while average ticket fell, indicating a shift toward lower-value jobs.")
-        if float(current["Unpaid Value"]) > 0:
-            insights.append(f"{money(current['Unpaid Value'])} remains unpaid and is excluded from recognized revenue and profit.")
-        insights.append(
-            "The current pace is projected to meet the weekly profit target."
-            if projected_profit >= WEEKLY_PROFIT_TARGET
-            else f"At the current pace, weekly profit is projected to miss the target by {money(WEEKLY_PROFIT_TARGET - projected_profit)}."
-        )
-        st.markdown("### Business Insights")
-        for insight in insights:
-            st.markdown(f"- {insight}")
-
-        with st.expander("How the score is calculated"):
-            st.markdown(
-                f"""
-The score uses projected full-week performance for the current Monday–Sunday period. Revenue and profit are recognized only when the **Paid** field contains a payment method. No rent, labor, or processing-fee allocation is deducted.
-
-- Profit vs {money(WEEKLY_PROFIT_TARGET)} target: **40%**
-- Revenue vs active-week historical median: **20%**
-- Orders vs active-week historical median: **15%**
-- Operating Margin vs active-week historical median: **15%**
-- Average Ticket vs active-week historical median: **10%**
-
-Zero-order weeks are excluded. Each component is capped at 100 points. Status bands: **Excellent 80–100**, **Normal 60–79**, **Needs Attention 40–59**, and **At Risk 0–39**.
-                """
-            )
-
-        total_revenue = analysis_dfx["Recognized Revenue"].sum()
-        total_profit = analysis_dfx["Recognized Gross Profit"].sum()
-        total_part_cost = analysis_dfx["Recognized Part Cost"].sum()
-        avg_ticket = total_revenue / max(1, int(analysis_dfx["Is Paid"].sum()))
-
-        st.divider()
-
-        trend_tab, customer_tab, operations_tab, quality_tab = st.tabs(
-            ["Financial Trends", "Customers", "Operations", "Data Quality"]
-        )
-
-        with trend_tab:
-            st.markdown("### Weekly Financial Trends")
-            valid_dates = analysis_dfx[analysis_dfx["Date Parsed"].notna()].copy()
-            if valid_dates.empty:
-                st.info("No valid dates available for trend charts.")
-            else:
-                weekly = (
-                    valid_dates.groupby("Week")[["Recognized Revenue", "Recognized Gross Profit", "Recognized Part Cost"]]
-                    .sum()
-                    .sort_index()
-                    .round(2)
-                    .reset_index()
-                    .rename(columns={
-                        "Recognized Revenue": "Revenue",
-                        "Recognized Gross Profit": "Gross Profit",
-                        "Recognized Part Cost": "Parts Cost",
-                    })
-                )
-                weekly["Profit"] = weekly["Gross Profit"]
-                weekly_long = weekly.melt(
-                    id_vars="Week",
-                    value_vars=["Revenue", "Profit", "Parts Cost"],
-                    var_name="Metric",
-                    value_name="Amount",
-                )
-                weekly_chart = (
-                    alt.Chart(weekly_long)
-                    .mark_line(point=True)
-                    .encode(
-                        x=alt.X("Week:T", title="Week"),
-                        y=alt.Y("Amount:Q", title="Amount ($)"),
-                        color=alt.Color("Metric:N", title="Metric"),
-                        tooltip=[
-                            alt.Tooltip("Week:T", title="Week", format="%Y-%m-%d"),
-                            alt.Tooltip("Metric:N", title="Metric"),
-                            alt.Tooltip("Amount:Q", title="Amount", format="$,.2f"),
-                        ],
-                    )
-                    .properties(height=360)
-                )
-                st.altair_chart(weekly_chart, use_container_width=True)
-
-                c_left, c_right = st.columns(2)
-                with c_left:
-                    monthly = (
-                        valid_dates.groupby("Month")[["Recognized Revenue", "Recognized Gross Profit"]]
-                        .agg({"Recognized Revenue": "sum", "Recognized Gross Profit": "sum"})
-                        .sort_index()
-                        .round(2)
-                    )
-                    monthly["Profit"] = monthly["Recognized Gross Profit"]
-                    monthly = monthly.drop(columns=["Recognized Gross Profit"])
-                    monthly.index = monthly.index.strftime("%Y-%m")
-                    st.markdown("### Monthly Summary")
-                    st.dataframe(
-                        monthly.rename(columns={"Recognized Revenue": "Revenue"}),
-                        use_container_width=True,
-                    )
-                with c_right:
-                    st.markdown("### Ticket Size")
-                    st.metric("Average Ticket", money(avg_ticket))
-                    st.metric("Average Gross Profit / Paid Order", money(total_profit / max(1, int(analysis_dfx["Is Paid"].sum()))))
-                    st.metric("Parts Cost", money(total_part_cost))
-
-        with customer_tab:
-            customer_summary = (
-                analysis_dfx.groupby("Customer Display")
-                .agg(
-                    Orders=("Customer Display", "size"),
-                    Revenue=("Recognized Revenue", "sum"),
-                    Profit=("Recognized Gross Profit", "sum"),
-                    Last_Order=("Date Parsed", "max"),
-                )
-                .sort_values("Revenue", ascending=False)
-                .head(15)
-                .reset_index()
-                .rename(columns={"Customer Display": "Customer"})
-            )
-            customer_summary["Revenue"] = customer_summary["Revenue"].round(2)
-            customer_summary["Profit"] = customer_summary["Profit"].round(2)
-            customer_summary["Last_Order"] = customer_summary["Last_Order"].dt.strftime("%Y-%m-%d").fillna("")
-
-            left, right = st.columns([2, 1])
-            with left:
-                st.markdown("### Top Customers")
-                st.dataframe(customer_summary, use_container_width=True, hide_index=True)
-            with right:
-                top_customer = customer_summary.iloc[0] if not customer_summary.empty else None
-                if top_customer is not None:
-                    st.metric("Top Customer", top_customer["Customer"])
-                    st.metric("Top Customer Revenue", money(top_customer["Revenue"]))
-                repeat_customers = int((analysis_dfx["Customer Display"].value_counts() > 1).sum())
-                st.metric("Repeat Customers", repeat_customers)
-
-        with operations_tab:
-            left, right = st.columns(2)
-            with left:
-                st.markdown("### Orders by Status")
-                status_counts = analysis_dfx["Order Status"].fillna("").replace("", "Missing").value_counts()
-                st.bar_chart(status_counts)
-
-                st.markdown("### Service Mix")
-                service_counts = analysis_dfx["Service Category"].value_counts()
-                st.bar_chart(service_counts)
-
-            with right:
-                st.markdown("### Parts by Status")
-                part_counts = analysis_dfx["Part Status"].fillna("").replace("", "No parts listed").value_counts()
-                st.bar_chart(part_counts)
-
-                st.markdown("### Payment Status")
-                payment_summary = (
-                    analysis_dfx.groupby("Paid Status")[["Total Price", "Profit"]]
-                    .sum()
-                    .sort_values("Total Price", ascending=False)
-                    .round(2)
-                )
-                st.dataframe(
-                    payment_summary.rename(columns={"Total Price": "Revenue"}),
-                    use_container_width=True,
-                )
-
-            st.markdown("### Open / Unpaid Work")
-            open_work = analysis_dfx[
-                analysis_dfx["Order Status"].ne("Completed") | ~paid_order_mask(analysis_dfx)
-            ].copy()
-            open_cols = [
-                "Date",
-                "Customer",
-                "Vehicle (Year Make Model)",
-                "Order Status",
-                "Part Status",
-                "Paid?",
-                "Total Price",
-                "Profit",
-                "Job / Notes",
-            ]
-            open_work = open_work.sort_values("Date Parsed", na_position="last")
-            st.dataframe(open_work[open_cols], use_container_width=True, hide_index=True)
-
-        with quality_tab:
-            st.markdown("### Data Quality Checks")
-            missing_date = int(analysis_dfx["Date Parsed"].isna().sum())
-            missing_customer = int(analysis_dfx["Customer"].fillna("").astype(str).str.strip().eq("").sum())
-            missing_vehicle = int(analysis_dfx["Vehicle (Year Make Model)"].fillna("").astype(str).str.strip().eq("").sum())
-            missing_payment = int(analysis_dfx["Paid Status"].eq("Unknown").sum())
-
-            q1, q2, q3, q4 = st.columns(4)
-            q1.metric("Invalid Dates", missing_date)
-            q2.metric("Missing Customer", missing_customer)
-            q3.metric("Missing Vehicle", missing_vehicle)
-            q4.metric("Unknown Payment", missing_payment)
-
-            issue_mask = (
-                analysis_dfx["Date Parsed"].isna()
-                | analysis_dfx["Customer"].fillna("").astype(str).str.strip().eq("")
-                | analysis_dfx["Vehicle (Year Make Model)"].fillna("").astype(str).str.strip().eq("")
-                | analysis_dfx["Paid Status"].eq("Unknown")
-            )
-            issue_cols = [
-                "Date",
-                "Customer",
-                "Vehicle (Year Make Model)",
-                "Order Status",
-                "Paid?",
-                "Total Price",
-                "Job / Notes",
-            ]
-            st.dataframe(analysis_dfx.loc[issue_mask, issue_cols], use_container_width=True, hide_index=True)
-
-with tabs[5]:
     st.subheader("🖨️ Print Work Order")
     st.caption("Select an order to generate a customer-facing work order for printing.")
     
