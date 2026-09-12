@@ -2027,6 +2027,34 @@ st.sidebar.caption("Tip: use 'Reload from source' if you changed the sheet in Go
 display_df = sort_orders_by_datetime(st.session_state.get("df", df))
 quick_df = dashboard_df(display_df)
 
+st.subheader("📊 Quick Stats")
+stat_cols = st.columns(4)
+for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in zip(
+    stat_cols,
+    quick_stat_windows(quick_df),
+):
+    with col:
+        render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label, end_date)
+
+payment_summary = payment_income_summary(quick_df)
+cash_total = payment_summary["Cash"]["total"]
+zelle_total = payment_summary["Zelle"]["total"]
+unclassified_total = payment_summary["Unclassified"]["total"]
+cash_orders = payment_summary["Cash"]["orders"]
+zelle_orders = payment_summary["Zelle"]["orders"]
+unclassified_orders = payment_summary["Unclassified"]["orders"]
+
+st.markdown("#### Payment Income")
+payment_cols = st.columns(3)
+with payment_cols[0]:
+    render_payment_income_card("Cash Income", cash_orders, cash_total)
+with payment_cols[1]:
+    render_payment_income_card("Zelle Income", zelle_orders, zelle_total)
+with payment_cols[2]:
+    render_payment_income_card("Unclassified", unclassified_orders, unclassified_total)
+
+st.divider()
+
 tabs = st.tabs(["🏠 Primary", "📋 All Details", "➕ Add Order", "💵 Price List", "🖨️ Print Work Order"])
 
 with tabs[0]:
