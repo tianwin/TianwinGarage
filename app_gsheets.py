@@ -783,12 +783,24 @@ def render_quick_stat_card(
     )
 
 
+TIME_FORMATS = ["%I:%M %p", "%I:%M%p", "%H:%M", "%H:%M:%S", "%I %p", "%I%p"]
+
+
+def parse_order_time_value(time_value):
+    if pd.isna(time_value) or str(time_value).strip() == "":
+        return pd.NaT
+
+    time_str = str(time_value).strip().upper()
+    for fmt in TIME_FORMATS:
+        parsed = pd.to_datetime(time_str, format=fmt, errors="coerce")
+        if pd.notna(parsed):
+            return parsed
+    return pd.NaT
+
+
 def parse_order_datetime_values(df: pd.DataFrame) -> pd.Series:
     dates = pd.to_datetime(df["Date"].apply(parse_order_date), errors="coerce")
-    times = pd.to_datetime(
-        df["Time"].fillna("").astype(str).str.strip(),
-        errors="coerce",
-    )
+    times = df["Time"].apply(parse_order_time_value)
     time_offsets = pd.to_timedelta(times.dt.hour.fillna(0), unit="h") + pd.to_timedelta(
         times.dt.minute.fillna(0),
         unit="m",
@@ -852,12 +864,6 @@ def render_echart(option: dict, key: str, height: int = 380, tooltip_formatter_j
         """,
         height=height + 24,
     )
-
-
-def parse_order_time_value(time_value):
-    if pd.isna(time_value) or str(time_value).strip() == "":
-        return pd.NaT
-    return pd.to_datetime(str(time_value).strip(), errors="coerce")
 
 
 def latest_orders_df(dfx: pd.DataFrame, limit: int = 5) -> pd.DataFrame:
