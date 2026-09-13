@@ -70,6 +70,7 @@ APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 EXPORT_DIR = DATA_DIR / "exports"
 APP_TIMEZONE = ZoneInfo("America/Los_Angeles")
+DEFAULT_ANALYTICS_URL = "https://YOUR-ANALYTICS-APP.streamlit.app/"
 
 COLUMNS = [
     "Order Status",
@@ -1018,6 +1019,21 @@ def _streamlit_secret(name: str, default=None):
         return default
 
 
+def get_analytics_url() -> str:
+    env_url = os.getenv("TIANWIN_ANALYTICS_URL", "").strip()
+    if env_url:
+        return env_url
+
+    try:
+        secret_url = str(st.secrets.get("TIANWIN_ANALYTICS_URL", "")).strip()
+        if secret_url:
+            return secret_url
+    except Exception:
+        pass
+
+    return DEFAULT_ANALYTICS_URL
+
+
 def _sheets_env() -> Tuple[Optional[str], str, Optional[str]]:
     spreadsheet_id = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID") or _streamlit_secret(
         "GOOGLE_SHEETS_SPREADSHEET_ID"
@@ -1797,7 +1813,11 @@ def generate_work_order_html(row: pd.Series) -> str:
     return html
 
 
-st.set_page_config(page_title="Auto Repair Orders", layout="wide")
+st.set_page_config(
+    page_title="Tianwin Garage — Service Operations",
+    page_icon="🚗",
+    layout="wide",
+)
 st.markdown(
     """
     <style>
@@ -1945,7 +1965,18 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.title("🚗 Auto Repair Orders — Google Sheets")
+
+ANALYTICS_URL = get_analytics_url()
+header_left, header_right = st.columns([4, 1.35], vertical_alignment="center")
+with header_left:
+    st.title("Tianwin Garage")
+    st.caption("Service Operations")
+with header_right:
+    st.link_button(
+        "Analytics Dashboard ↗",
+        ANALYTICS_URL,
+        use_container_width=True,
+    )
 
 if not gsheets_enabled():
     st.error(
@@ -1959,7 +1990,6 @@ if not gsheets_enabled():
     st.stop()
 
 sid, ws, sa = _sheets_env()
-st.caption(f"Backend: **Google Sheets** | Tab: **{ws}**")
 
 try:
     with st.spinner("Loading orders from Google Sheets..."):
@@ -1970,7 +2000,14 @@ except Exception as e:
     st.exception(e)
     st.stop()
 
-st.sidebar.header("Actions")
+st.sidebar.markdown("### Navigation")
+st.sidebar.link_button(
+    "Analytics Dashboard ↗",
+    ANALYTICS_URL,
+    use_container_width=True,
+)
+st.sidebar.divider()
+st.sidebar.header("Operations")
 
 if st.sidebar.button("🔄 Reload from source"):
     st.cache_resource.clear()  # refresh service/auth cache if needed
@@ -2027,20 +2064,15 @@ if uploaded_csv is not None:
         st.sidebar.error(f"Import failed: {e}")
 
 st.sidebar.divider()
+with st.sidebar.expander("System", expanded=False):
+    st.caption("Data source: Google Sheets")
+    st.caption(f"Worksheet: {ws}")
+    st.caption("Connection: Configured")
 st.sidebar.caption("Tip: use 'Reload from source' if you changed the sheet in Google.")
 
 
 display_df = sort_orders_by_datetime(st.session_state.get("df", df))
 quick_df = dashboard_df(display_df)
-
-st.subheader("📊 Quick Stats")
-stat_cols = st.columns(4)
-for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in zip(
-    stat_cols,
-    quick_stat_windows(quick_df),
-):
-    with col:
-        render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label, end_date)
 
 payment_summary = payment_income_summary(quick_df)
 cash_total = payment_summary["Cash"]["total"]
@@ -2050,18 +2082,7 @@ cash_orders = payment_summary["Cash"]["orders"]
 zelle_orders = payment_summary["Zelle"]["orders"]
 unclassified_orders = payment_summary["Unclassified"]["orders"]
 
-st.markdown("#### Payment Income")
-payment_cols = st.columns(3)
-with payment_cols[0]:
-    render_payment_income_card("Cash Income", cash_orders, cash_total)
-with payment_cols[1]:
-    render_payment_income_card("Zelle Income", zelle_orders, zelle_total)
-with payment_cols[2]:
-    render_payment_income_card("Unclassified", unclassified_orders, unclassified_total)
-
-st.divider()
-
-tabs = st.tabs(["🏠 Primary", "📋 All Details", "➕ Add Order", "💵 Price List", "🖨️ Print Work Order"])
+tabs = st.tabs(["Overview", "Orders", "New Order", "Pricing", "Work Order"])
 
 with tabs[0]:
     st.subheader("Latest Orders")
@@ -2087,6 +2108,26 @@ with tabs[0]:
             hide_index=True,
             column_config={"Total Price": st.column_config.NumberColumn("Total Price", format="$%.2f")},
         )
+
+    st.divider()
+
+    st.subheader("Quick Stats")
+    stat_cols = st.columns(4)
+    for col, (title, subtitle, window_df, previous_df, previous_label, end_date) in zip(
+        stat_cols,
+        quick_stat_windows(quick_df),
+    ):
+        with col:
+            render_quick_stat_card(title, subtitle, window_df, previous_df, previous_label, end_date)
+
+    st.markdown("#### Payment Income")
+    payment_cols = st.columns(3)
+    with payment_cols[0]:
+        render_payment_income_card("Cash Income", cash_orders, cash_total)
+    with payment_cols[1]:
+        render_payment_income_card("Zelle Income", zelle_orders, zelle_total)
+    with payment_cols[2]:
+        render_payment_income_card("Unclassified", unclassified_orders, unclassified_total)
 
     st.divider()
     st.subheader("Business Overview")
@@ -2391,8 +2432,8 @@ with tabs[0]:
         )
 
 with tabs[1]:
-    st.subheader("All Detail Orders")
-    st.caption("Full editable sheet. Save writes back to Google Sheets.")
+    st.subheader("Orders")
+    st.caption("Full editable order history. Changes can be saved back to Google Sheets.")
     detail_height = table_height(len(display_df))
 
     edited = st.data_editor(
@@ -2420,7 +2461,7 @@ with tabs[1]:
             st.rerun()
 
 with tabs[2]:
-    st.subheader("Add Order (form)")
+    st.subheader("New Order")
     base = {c: "" for c in COLUMNS}
     current_orders_df = st.session_state.get("df", df)
     suggested_order_id = generate_order_id(current_orders_df)
@@ -2475,7 +2516,7 @@ with tabs[2]:
             st.rerun()
 
 with tabs[3]:
-    st.subheader("Price List")
+    st.subheader("Pricing")
     price_list_df = build_price_list_df(st.session_state.get("df", df))
     st.dataframe(
         price_list_df,
@@ -2494,7 +2535,7 @@ with tabs[3]:
     )
 
 with tabs[4]:
-    st.subheader("🖨️ Print Work Order")
+    st.subheader("Work Order")
     st.caption("Select an order to generate a customer-facing work order for printing.")
     
     if len(df) == 0:
