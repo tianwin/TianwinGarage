@@ -70,7 +70,7 @@ APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 EXPORT_DIR = DATA_DIR / "exports"
 APP_TIMEZONE = ZoneInfo("America/Los_Angeles")
-DEFAULT_ANALYTICS_URL = "https://YOUR-ANALYTICS-APP.streamlit.app/"
+DEFAULT_ANALYTICS_URL = "https://tianwin-garage-analytics.streamlit.app/"
 
 COLUMNS = [
     "Order Status",
