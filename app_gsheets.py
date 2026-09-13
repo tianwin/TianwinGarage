@@ -1501,322 +1501,280 @@ def export_excel(df: pd.DataFrame) -> Path:
     return out
 
 
-def generate_work_order_html(row: pd.Series) -> str:
-    """Generate HTML for a customer-facing work order."""
-    def safe_get(key, default=""):
-        val = row.get(key, default)
-        return str(val) if pd.notna(val) and val != "" else default
-    
-    order_id = safe_get("Order ID", "N/A")
-    date = safe_get("Date", "")
-    time = safe_get("Time", "")
-    customer = safe_get("Customer", "")
-    address = safe_get("Address", "")
-    vehicle = safe_get("Vehicle (Year Make Model)", "")
-    plate = safe_get("Plate", "")
-    vin = safe_get("VIN", "")
-    mileage = safe_get("Mileage", "")
-    job_notes = safe_get("Job / Notes", "")
-    paid = safe_get("Paid?", "")
-    
-    # Get price values - handle both numeric and string types
-    labor_val = row.get("Labor", 0)
-    trip_fee_val = row.get("Trip Fee", 0)
-    part_price_val = row.get("Part Price", 0)
-    total_price_val = row.get("Total Price", 0)
-    
-    # Convert to float if not already
-    try:
-        if pd.notna(labor_val) and labor_val != "":
-            labor_val = float(labor_val)
-        else:
-            labor_val = 0.0
-    except (ValueError, TypeError):
-        labor_val = 0.0
+def safe_text(value, fallback: str = "—") -> str:
+    """Return escaped customer-facing text without leaking missing-value markers."""
+    if value is None or pd.isna(value):
+        return html.escape(fallback)
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none"}:
+        return html.escape(fallback)
+    return html.escape(text)
 
-    try:
-        if pd.notna(trip_fee_val) and trip_fee_val != "":
-            trip_fee_val = float(trip_fee_val)
-        else:
-            trip_fee_val = 0.0
-    except (ValueError, TypeError):
-        trip_fee_val = 0.0
-    
-    try:
-        if pd.notna(part_price_val) and part_price_val != "":
-            part_price_val = float(part_price_val)
-        else:
-            part_price_val = 0.0
-    except (ValueError, TypeError):
-        part_price_val = 0.0
-    
-    try:
-        if pd.notna(total_price_val) and total_price_val != "":
-            total_price_val = float(total_price_val)
-        else:
-            total_price_val = 0.0
-    except (ValueError, TypeError):
-        total_price_val = 0.0
-    
-    # Format prices
-    labor_str = f"${labor_val:,.2f}"
-    trip_fee_str = f"${trip_fee_val:,.2f}"
-    part_price_str = f"${part_price_val:,.2f}"
-    total_price_str = f"${total_price_val:,.2f}"
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Work Order - {order_id}</title>
-        <style>
-            @media print {{
-                @page {{
-                    margin: 0.3in;
-                }}
-                body {{
-                    margin: 0;
-                    padding: 10px;
-                }}
-                .no-print {{
-                    display: none;
-                }}
-            }}
-            body {{
-                font-family: Arial, sans-serif;
-                max-width: 8.5in;
-                margin: 0 auto;
-                padding: 10px;
-                color: #333;
-                font-size: 11px;
-            }}
-            .header {{
-                text-align: center;
-                border-bottom: 2px solid #000;
-                padding-bottom: 5px;
-                margin-bottom: 8px;
-            }}
-            .shop-name {{
-                font-size: 20px;
-                font-weight: bold;
-                margin-bottom: 2px;
-            }}
-            .work-order-title {{
-                font-size: 14px;
-                margin-top: 2px;
-            }}
-            .order-info {{
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
-                gap: 8px;
-                margin: 8px 0;
-            }}
-            .info-section {{
-                background: #f5f5f5;
-                padding: 6px;
-                border-radius: 3px;
-            }}
-            .info-section h3 {{
-                margin: 0 0 4px 0;
-                border-bottom: 1px solid #333;
-                padding-bottom: 2px;
-                font-size: 11px;
-            }}
-            .info-row {{
-                display: flex;
-                justify-content: space-between;
-                margin: 2px 0;
-                font-size: 10px;
-            }}
-            .info-label {{
-                font-weight: bold;
-            }}
-            .job-details {{
-                margin: 6px 0;
-                background: #f5f5f5;
-                padding: 6px;
-                border-radius: 3px;
-            }}
-            .job-details h3 {{
-                margin: 0 0 4px 0;
-                border-bottom: 1px solid #333;
-                padding-bottom: 2px;
-                font-size: 11px;
-            }}
-            .job-details p {{
-                margin: 4px 0;
-                font-size: 10px;
-            }}
-            .pricing {{
-                margin: 6px 0;
-                background: #f5f5f5;
-                padding: 6px;
-                border-radius: 3px;
-            }}
-            .pricing h3 {{
-                margin: 0 0 4px 0;
-                border-bottom: 1px solid #333;
-                padding-bottom: 2px;
-                font-size: 11px;
-            }}
-            .price-row {{
-                display: flex;
-                justify-content: space-between;
-                margin: 3px 0;
-                padding: 2px 0;
-                font-size: 10px;
-            }}
-            .price-row.total {{
-                border-top: 1px solid #333;
-                border-bottom: 1px solid #333;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 4px 0;
-                margin-top: 4px;
-            }}
-            .footer {{
-                margin-top: 8px;
-                padding-top: 6px;
-                border-top: 1px solid #333;
-                text-align: center;
-                font-size: 9px;
-            }}
-            .footer p {{
-                margin: 2px 0;
-            }}
-            .signature-section {{
-                margin-top: 10px;
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 20px;
-            }}
-            .signature-box {{
-                border-top: 1px solid #333;
-                padding-top: 3px;
-                text-align: center;
-                font-size: 10px;
-            }}
-            .print-button {{
-                background: #4CAF50;
-                color: white;
-                padding: 10px 20px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 16px;
-                margin: 20px 0;
-            }}
-            .print-button:hover {{
-                background: #45a049;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <div class="shop-name">Tianwin's Garage</div>
-            <div class="work-order-title">WORK ORDER</div>
+
+def numeric_value(value) -> float:
+    """Return a normalized numeric value for customer-facing totals."""
+    cleaned = clean_price_value(value)
+    return float(cleaned) if cleaned is not None else 0.0
+
+
+def safe_money(value) -> str:
+    return f"${numeric_value(value):,.2f}"
+
+
+def generate_work_order_html(row: pd.Series) -> str:
+    """Generate a print-friendly customer work order from one order row."""
+    order_id = safe_text(row.get("Order ID"), "—")
+    labor_value = numeric_value(row.get("Labor"))
+    trip_fee_value = numeric_value(row.get("Trip Fee"))
+    part_price_value = numeric_value(row.get("Part Price"))
+    total_value = numeric_value(row.get("Total Price"))
+    if total_value == 0:
+        total_value = labor_value + trip_fee_value + part_price_value
+
+    labor_time_value = numeric_value(row.get("Labor Time"))
+    labor_time = f"{labor_time_value:.2f} hrs" if labor_time_value > 0 else "—"
+    paid_raw = row.get("Paid?", "")
+    paid_value = "" if paid_raw is None or pd.isna(paid_raw) else str(paid_raw).strip().lower()
+    payment_status = "UNPAID" if paid_value in {"", "unknown", "no", "unpaid", "not paid", "pending"} else "PAID"
+
+    part_name = safe_text(row.get("Part Name"), "")
+    parts_section = ""
+    if part_name:
+        parts_section = f"""
+        <section class="section parts-section">
+            <div class="section-title">PARTS / MATERIALS</div>
+            <table class="parts-table">
+                <thead>
+                    <tr>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                        <th class="money">Price</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{part_name}</td>
+                        <td>{safe_text(row.get("Part Status"))}</td>
+                        <td class="notes">{safe_text(row.get("Part Notes"))}</td>
+                        <td class="money">{safe_money(part_price_value)}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+        """
+
+    document_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Order - {order_id}</title>
+    <style>
+        @page {{
+            size: Letter;
+            margin: 0.45in;
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{
+            max-width: 7.6in;
+            margin: 0 auto;
+            padding: 18px;
+            background: #fff;
+            color: #111;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+        }}
+        .document-header {{
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 28px;
+            align-items: start;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #111;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+        .header-group {{ break-inside: avoid; page-break-inside: avoid; }}
+        .shop-name {{ font-size: 22px; font-weight: 700; letter-spacing: 0; }}
+        .shop-subtitle {{ margin-top: 2px; color: #444; font-size: 11px; }}
+        .document-identity {{ min-width: 180px; text-align: right; }}
+        .document-title {{ font-size: 19px; font-weight: 700; }}
+        .order-number {{ margin-top: 3px; font-size: 13px; font-weight: 700; }}
+        .order-meta {{
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+            padding: 9px 0;
+            border-bottom: 1px solid #555;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+        .label {{ color: #444; font-size: 9px; font-weight: 700; text-transform: uppercase; }}
+        .value {{ margin-top: 2px; overflow-wrap: anywhere; }}
+        .status {{ text-transform: uppercase; font-weight: 700; }}
+        .customer-vehicle-grid {{
+            display: grid;
+            grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+            gap: 28px;
+            padding: 12px 0;
+            border-bottom: 1px solid #555;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+        .section {{
+            margin-top: 12px;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+        .section-title {{
+            padding: 4px 6px;
+            border-top: 1px solid #555;
+            border-bottom: 1px solid #555;
+            background: #eee;
+            font-size: 10px;
+            font-weight: 700;
+        }}
+        .detail-grid {{ display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; margin-top: 7px; }}
+        .service-notes {{ min-height: 48px; padding: 8px 6px; white-space: pre-wrap; overflow-wrap: anywhere; }}
+        .service-details {{ padding: 8px 6px; }}
+        .parts-table {{
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+        .parts-table th, .parts-table td {{ padding: 6px; border-bottom: 1px solid #777; text-align: left; vertical-align: top; overflow-wrap: anywhere; }}
+        .parts-table th {{ font-size: 9px; text-transform: uppercase; }}
+        .parts-table th:nth-child(1) {{ width: 29%; }}
+        .parts-table th:nth-child(2) {{ width: 18%; }}
+        .parts-table th:nth-child(3) {{ width: 38%; }}
+        .parts-table th:nth-child(4) {{ width: 15%; }}
+        .parts-table .notes {{ white-space: pre-wrap; }}
+        .money {{ text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+        .totals-section {{
+            width: 290px;
+            margin: 16px 0 0 auto;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+        .total-row {{ display: grid; grid-template-columns: 1fr 110px; gap: 16px; padding: 3px 0; }}
+        .total-row span:last-child {{ text-align: right; font-variant-numeric: tabular-nums; }}
+        .total-row.grand-total {{ margin-top: 4px; padding-top: 6px; border-top: 2px solid #111; font-size: 13px; font-weight: 700; }}
+        .payment-status {{ margin-top: 8px; padding-top: 7px; border-top: 1px solid #777; text-align: right; font-weight: 700; }}
+        .authorization-section {{
+            margin-top: 18px;
+            padding-top: 10px;
+            border-top: 2px solid #111;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
+        .authorization-title {{ font-size: 10px; font-weight: 700; }}
+        .authorization-copy {{ max-width: 6.5in; margin: 6px 0 16px; }}
+        .signature-grid {{ display: grid; grid-template-columns: 1fr 150px; gap: 14px 24px; }}
+        .signature-line {{ height: 28px; padding-top: 12px; border-bottom: 1px solid #111; }}
+        .signature-label {{ margin-top: 3px; color: #444; font-size: 9px; }}
+        .footer {{ margin-top: 18px; padding-top: 8px; border-top: 1px solid #555; text-align: center; font-size: 9px; }}
+        .print-button {{
+            margin: 0 0 14px;
+            padding: 7px 12px;
+            border: 1px solid #444;
+            background: #fff;
+            color: #111;
+            font: inherit;
+            cursor: pointer;
+        }}
+        @media screen and (max-width: 700px) {{
+            body {{ padding: 12px; }}
+            .customer-vehicle-grid {{ grid-template-columns: 1fr; gap: 14px; }}
+            .order-meta {{ grid-template-columns: 1fr; gap: 7px; }}
+            .totals-section {{ width: 100%; }}
+            .signature-grid {{ grid-template-columns: 1fr; gap: 10px; }}
+        }}
+        @media print {{
+            body {{ max-width: none; margin: 0; padding: 0; }}
+            .no-print {{ display: none !important; }}
+        }}
+    </style>
+</head>
+<body>
+    <button class="print-button no-print" onclick="window.print()">Print Work Order</button>
+    <div class="header-group">
+        <header class="document-header">
+            <div>
+                <div class="shop-name">TIANWIN GARAGE</div>
+                <div class="shop-subtitle">Mobile Automotive Service</div>
+            </div>
+            <div class="document-identity">
+                <div class="document-title">WORK ORDER</div>
+                <div class="order-number">WO # {order_id}</div>
+            </div>
+        </header>
+
+        <div class="order-meta">
+            <div><div class="label">Date</div><div class="value">{safe_text(row.get("Date"))}</div></div>
+            <div><div class="label">Time</div><div class="value">{safe_text(row.get("Time"))}</div></div>
+            <div><div class="label">Status</div><div class="value status">{safe_text(row.get("Order Status"))}</div></div>
         </div>
-        
-        <div class="order-info">
-            <div class="info-section">
-                <h3>Order Information</h3>
-                <div class="info-row">
-                    <span class="info-label">Order ID:</span>
-                    <span>{order_id}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Date:</span>
-                    <span>{date}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Time:</span>
-                    <span>{time}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Status:</span>
-                    <span>{safe_get("Order Status", "")}</span>
-                </div>
+    </div>
+
+    <div class="customer-vehicle-grid">
+        <section>
+            <div class="section-title">CUSTOMER INFORMATION</div>
+            <div class="detail-grid">
+                <div class="label">Customer</div><div>{safe_text(row.get("Customer"))}</div>
+                <div class="label">Address</div><div>{safe_text(row.get("Address"))}</div>
             </div>
-            
-            <div class="info-section">
-                <h3>Customer Information</h3>
-                <div class="info-row">
-                    <span class="info-label">Customer:</span>
-                    <span>{customer}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Address:</span>
-                    <span>{address}</span>
-                </div>
+        </section>
+        <section>
+            <div class="section-title">VEHICLE INFORMATION</div>
+            <div class="detail-grid">
+                <div class="label">Vehicle</div><div>{safe_text(row.get("Vehicle (Year Make Model)"))}</div>
+                <div class="label">Mileage</div><div>{safe_text(row.get("Mileage"))}</div>
+                <div class="label">Plate</div><div>{safe_text(row.get("Plate"))}</div>
+                <div class="label">VIN</div><div>{safe_text(row.get("VIN"))}</div>
             </div>
-            
-            <div class="info-section">
-                <h3>Vehicle Information</h3>
-                <div class="info-row">
-                    <span class="info-label">Vehicle:</span>
-                    <span>{vehicle}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Plate:</span>
-                    <span>{plate}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">VIN:</span>
-                    <span>{vin}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Mileage:</span>
-                    <span>{mileage}</span>
-                </div>
-            </div>
+        </section>
+    </div>
+
+    <section class="section">
+        <div class="section-title">SERVICE REQUEST / CUSTOMER CONCERN</div>
+        <div class="service-notes">{safe_text(row.get("Job / Notes"))}</div>
+    </section>
+
+    <section class="section">
+        <div class="section-title">SERVICE DETAILS</div>
+        <div class="service-details"><span class="label">Labor Time:</span> {labor_time}</div>
+    </section>
+
+    {parts_section}
+
+    <section class="totals-section">
+        <div class="total-row"><span>Labor</span><span>{safe_money(labor_value)}</span></div>
+        <div class="total-row"><span>Parts</span><span>{safe_money(part_price_value)}</span></div>
+        <div class="total-row"><span>Trip Fee</span><span>{safe_money(trip_fee_value)}</span></div>
+        <div class="total-row grand-total"><span>TOTAL</span><span>{safe_money(total_value)}</span></div>
+        <div class="payment-status">PAYMENT STATUS: {payment_status}</div>
+    </section>
+
+    <section class="authorization-section">
+        <div class="authorization-title">CUSTOMER AUTHORIZATION</div>
+        <p class="authorization-copy">I authorize the inspection and/or services described above and acknowledge the work documented on this work order.</p>
+        <div class="signature-grid">
+            <div><div class="signature-line"></div><div class="signature-label">Customer Signature</div></div>
+            <div><div class="signature-line"></div><div class="signature-label">Date</div></div>
+            <div><div class="signature-line"></div><div class="signature-label">Technician</div></div>
+            <div><div class="signature-line"></div><div class="signature-label">Date</div></div>
         </div>
-        
-        <div class="job-details">
-            <h3>Job Description</h3>
-            <p>{job_notes if job_notes else "N/A"}</p>
-        </div>
-        
-        <div class="pricing">
-            <h3>Pricing</h3>
-            <div class="price-row">
-                <span>Labor:</span>
-                <span>{labor_str}</span>
-            </div>
-            <div class="price-row">
-                <span>Trip Fee:</span>
-                <span>{trip_fee_str}</span>
-            </div>
-            <div class="price-row">
-                <span>Parts:</span>
-                <span>{part_price_str}</span>
-            </div>
-            <div class="price-row total">
-                <span>Total:</span>
-                <span>{total_price_str}</span>
-            </div>
-            <div class="price-row">
-                <span>Paid:</span>
-                <span>{paid if paid else "No"}</span>
-            </div>
-        </div>
-        
-        <div class="signature-section">
-            <div class="signature-box">
-                <div>Customer Signature</div>
-            </div>
-            <div class="signature-box">
-                <div>Date</div>
-            </div>
-        </div>
-        
-        <div class="footer">
-            <p>Thank you for choosing Tianwin's Garage!</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html
+    </section>
+
+    <footer class="footer">Thank you for choosing Tianwin Garage.</footer>
+</body>
+</html>
+"""
+    return document_html
 
 
 st.set_page_config(
@@ -2574,12 +2532,7 @@ with tabs[4]:
                 st.write(f"**Date:** {selected_order.get('Date', 'N/A')}")
                 st.write(f"**Vehicle:** {selected_order.get('Vehicle (Year Make Model)', 'N/A')}")
             with preview_cols[2]:
-                total = selected_order.get('Total Price', 0)
-                try:
-                    total_str = f"${float(total):,.2f}"
-                except (ValueError, TypeError):
-                    total_str = f"${total}"
-                st.write(f"**Total:** {total_str}")
+                st.write(f"**Total:** {safe_money(selected_order.get('Total Price', 0))}")
             
             # Generate HTML
             work_order_html = generate_work_order_html(selected_order)
