@@ -443,6 +443,16 @@ def money(value) -> str:
     return f"${float(value or 0):,.2f}"
 
 
+def safe_divide_series(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    """Divide numeric Series and return zero where the denominator is zero or missing."""
+    numerator_values = pd.to_numeric(numerator, errors="coerce").fillna(0).astype("float64")
+    denominator_values = pd.to_numeric(denominator, errors="coerce").fillna(0).astype("float64")
+    result = pd.Series(0.0, index=numerator.index, dtype="float64")
+    valid = denominator_values.ne(0)
+    result.loc[valid] = numerator_values.loc[valid].div(denominator_values.loc[valid])
+    return result
+
+
 WEEKLY_PROFIT_TARGET = 1000.0
 BUSINESS_SCORE_WEIGHTS = {
     "Operating Profit": 0.40,
@@ -488,12 +498,8 @@ def weekly_business_summary(dfx: pd.DataFrame) -> pd.DataFrame:
         .sort_values("Week")
     )
     weekly["Operating Profit"] = weekly["Gross Profit"]
-    weekly["Operating Margin"] = (
-        weekly["Operating Profit"].div(weekly["Revenue"].replace(0, pd.NA)).fillna(0) * 100
-    )
-    weekly["Average Ticket"] = (
-        weekly["Revenue"].div(weekly["Paid Orders"].replace(0, pd.NA)).fillna(0)
-    )
+    weekly["Operating Margin"] = safe_divide_series(weekly["Operating Profit"], weekly["Revenue"]) * 100
+    weekly["Average Ticket"] = safe_divide_series(weekly["Revenue"], weekly["Paid Orders"])
     return weekly
 
 
@@ -946,7 +952,7 @@ def continuous_weekly_summary(dfx: pd.DataFrame) -> pd.DataFrame:
     )
     all_weeks = pd.DataFrame({"Week": pd.date_range(weekly["Week"].min(), weekly["Week"].max(), freq="W-MON")})
     weekly = all_weeks.merge(weekly, on="Week", how="left").fillna({"Collected Revenue": 0, "Paid Orders": 0})
-    weekly["Average Ticket"] = weekly["Collected Revenue"].div(weekly["Paid Orders"].replace(0, pd.NA)).fillna(0)
+    weekly["Average Ticket"] = safe_divide_series(weekly["Collected Revenue"], weekly["Paid Orders"])
     return weekly
 
 
@@ -1975,7 +1981,7 @@ with header_right:
     st.link_button(
         "Analytics Dashboard ↗",
         ANALYTICS_URL,
-        use_container_width=True,
+        width="stretch",
     )
 
 if not gsheets_enabled():
@@ -2004,7 +2010,7 @@ st.sidebar.markdown("### Navigation")
 st.sidebar.link_button(
     "Analytics Dashboard ↗",
     ANALYTICS_URL,
-    use_container_width=True,
+    width="stretch",
 )
 st.sidebar.divider()
 st.sidebar.header("Operations")
@@ -2104,7 +2110,7 @@ with tabs[0]:
     else:
         st.dataframe(
             latest_preview,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={"Total Price": st.column_config.NumberColumn("Total Price", format="$%.2f")},
         )
@@ -2290,7 +2296,7 @@ with tabs[0]:
                 )
                 .sort_values("Collected Revenue", ascending=True)
             )
-            service["Average Ticket"] = service["Collected Revenue"].div(service["Orders"].replace(0, pd.NA)).fillna(0)
+            service["Average Ticket"] = safe_divide_series(service["Collected Revenue"], service["Orders"])
             service_data = [
                 {
                     "value": round(float(row["Collected Revenue"]), 2),
@@ -2438,7 +2444,7 @@ with tabs[1]:
 
     edited = st.data_editor(
         display_df,
-        use_container_width=True,
+        width="stretch",
         num_rows="dynamic",
         height=detail_height,
         column_config={
@@ -2520,7 +2526,7 @@ with tabs[3]:
     price_list_df = build_price_list_df(st.session_state.get("df", df))
     st.dataframe(
         price_list_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "Suggested Price": st.column_config.NumberColumn("Suggested Price", format="$%.0f"),
