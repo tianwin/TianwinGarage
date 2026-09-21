@@ -937,7 +937,7 @@ def prepare_cash_basis_df(dfx: pd.DataFrame) -> pd.DataFrame:
 
 def continuous_weekly_summary(dfx: pd.DataFrame) -> pd.DataFrame:
     valid = dfx[dfx["Date Parsed"].notna()].copy()
-    columns = ["Week", "Collected Revenue", "Paid Orders", "Average Ticket"]
+    columns = ["Week", "Collected Revenue", "Recorded Contribution", "Paid Orders", "Average Ticket"]
     if valid.empty:
         return pd.DataFrame(columns=columns)
     weekly = (
@@ -945,13 +945,16 @@ def continuous_weekly_summary(dfx: pd.DataFrame) -> pd.DataFrame:
         .agg(
             **{
                 "Collected Revenue": ("Collected Revenue", "sum"),
+                "Recorded Contribution": ("Recorded Contribution", "sum"),
                 "Paid Orders": ("Is Paid", "sum"),
             }
         )
         .sort_values("Week")
     )
     all_weeks = pd.DataFrame({"Week": pd.date_range(weekly["Week"].min(), weekly["Week"].max(), freq="W-MON")})
-    weekly = all_weeks.merge(weekly, on="Week", how="left").fillna({"Collected Revenue": 0, "Paid Orders": 0})
+    weekly = all_weeks.merge(weekly, on="Week", how="left").fillna(
+        {"Collected Revenue": 0, "Recorded Contribution": 0, "Paid Orders": 0}
+    )
     weekly["Average Ticket"] = safe_divide_series(weekly["Collected Revenue"], weekly["Paid Orders"])
     return weekly
 
@@ -2148,10 +2151,7 @@ with tabs[0]:
                     "dataZoom": [{"type": "inside"}, {"type": "slider"}],
                     "grid": {"left": 64, "right": 64, "top": 48, "bottom": 72},
                     "xAxis": {"type": "category", "data": week_labels},
-                    "yAxis": [
-                        {"type": "value", "name": "Dollars", "axisLabel": {"formatter": "${value}"}},
-                        {"type": "value", "name": "Orders"},
-                    ],
+                    "yAxis": {"type": "value", "name": "Dollars", "axisLabel": {"formatter": "${value}"}},
                     "series": [
                         {
                             "name": "Collected Revenue",
@@ -2160,10 +2160,9 @@ with tabs[0]:
                             "itemStyle": {"color": "#2563eb"},
                         },
                         {
-                            "name": "Paid Orders",
+                            "name": "Recorded Contribution",
                             "type": "line",
-                            "yAxisIndex": 1,
-                            "data": weekly["Paid Orders"].astype(int).tolist(),
+                            "data": weekly["Recorded Contribution"].round(2).tolist(),
                             "smooth": True,
                             "itemStyle": {"color": "#16a34a"},
                         },
