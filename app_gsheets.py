@@ -142,6 +142,112 @@ PRICE_COLUMNS = ["Labor", "Trip Fee", "Part Cost", "Part Price", "Total Price", 
 NUMERIC_COLUMNS = ["Labor", "Labor Time", "Trip Fee", "Part Cost", "Part Price", "Mileage"]
 FORMULA_COLUMNS = ["Total Price", "Profit"]
 
+INSPECTION_RESULT_OPTIONS = ["Not checked", "No", "Yes"]
+INSPECTION_DEAL_BREAKERS = {4, 19, 30, 61, 71, 94}
+USED_CAR_INSPECTION_ITEMS = [
+    (1, "The Basics", "Is the owner's manual missing?"),
+    (2, "The Basics", "Are there large gaps in the service history or no records at all?"),
+    (3, "The Basics", "Do you suspect the mileage is not legitimate?"),
+    (4, "The Basics", "Does the title include the word 'salvage'?"),
+    (5, "Exterior", "Is there evidence of curb damage on the wheels?"),
+    (6, "Exterior", "Are the windshield wiper blades damaged?"),
+    (7, "Exterior", "Are any hubcaps missing, damaged, or loose?"),
+    (8, "Exterior", "Are any tire pressures improperly set?"),
+    (9, "Exterior", "Is the paint faded or cracked?"),
+    (10, "Exterior", "Are any panels a different shade or color?"),
+    (11, "Exterior", "Are any panel gaps markedly different from the others?"),
+    (12, "Exterior", "Are any trim pieces loose or missing?"),
+    (13, "Exterior", "Does a magnet fail to adhere to the sheet metal at any tested spot?"),
+    (14, "Exterior", "Are any tires a different brand or size?"),
+    (15, "Exterior", "Is there poorly repaired accident damage?"),
+    (16, "Exterior", "Are any lug nuts missing?"),
+    (17, "Exterior", "Are there dark spots or oily film on the bumper near the exhaust pipe?"),
+    (18, "Exterior", "Are there any small rust spots?"),
+    (19, "Exterior", "Is there extensive rust?"),
+    (20, "Interior", "Are there tears or significant wear marks in the seats?"),
+    (21, "Interior", "Are there cracks, blemishes, or broken trim?"),
+    (22, "Interior", "Are the spare tire, jack, or tools damaged or missing?"),
+    (23, "Interior", "Do any windows move slower than the others or make unusual noises?"),
+    (24, "Interior", "Does the climate-control fan squeak, rattle, or operate at only one speed?"),
+    (25, "Interior", "Does the air conditioning blow warm air?"),
+    (26, "Interior", "Do any accessories fail to operate properly?"),
+    (27, "Interior", "Does brake-pedal wear conflict with the indicated mileage?"),
+    (28, "Interior", "Is there rust or evidence of water in the spare-tire well?"),
+    (29, "Interior", "Does the sunroof operate slowly or struggle to move?"),
+    (30, "Interior", "Is there a stale or mildew-like smell?"),
+    (31, "Interior", "Is there evidence of water damage in the glovebox or under the rear seat?"),
+    (32, "Chassis / Underbody", "Are any inner fender shields missing or broken?"),
+    (33, "Chassis / Underbody", "After a three-bounce test, does the body continue moving more than twice?"),
+    (34, "Chassis / Underbody", "Is there uneven wear on any tire?"),
+    (35, "Chassis / Underbody", "Does oil coat any shock absorber?"),
+    (36, "Chassis / Underbody", "With the vehicle safely supported, is there lateral play at any wheel hub?"),
+    (37, "Chassis / Underbody", "Is there movement in the tie rods or suspension mounts?"),
+    (38, "Chassis / Underbody", "Are the brake pads or rotors worn out?"),
+    (39, "Chassis / Underbody", "Is there rust on any underbody surface?"),
+    (40, "Chassis / Underbody", "Is there evidence of fluid leakage at the bottom of the engine?"),
+    (41, "Chassis / Underbody", "Are there transmission or differential leaks?"),
+    (42, "Chassis / Underbody", "Is any metal bent or dented?"),
+    (43, "Chassis / Underbody", "Are there shiny marks on the pinch welds?"),
+    (44, "Chassis / Underbody", "Is there fluid seepage at a brake caliper or brake drum?"),
+    (45, "Chassis / Underbody", "Are there puddles of oil or other fluid under the vehicle?"),
+    (46, "Chassis / Underbody", "Is the bottom of the radiator wet with coolant?"),
+    (47, "Engine", "With the engine off, do any hoses feel stiff or brittle?"),
+    (48, "Engine", "Are there cracks in any belt?"),
+    (49, "Engine", "Are any wires missing protective sheathing?"),
+    (50, "Engine", "Are any hose clamps loose?"),
+    (51, "Engine", "Are the battery clamps loose or corroded?"),
+    (52, "Engine", "Is the battery more than four years old?"),
+    (53, "Engine", "Are there fluid leaks at accessories such as the steering pump or brake reservoir?"),
+    (54, "Engine", "Is there evidence of nesting animals?"),
+    (55, "Engine", "Is the air filter dirty?"),
+    (56, "Engine", "Are any fluid levels below minimum?"),
+    (57, "Engine", "Do oil-change records or stickers show the vehicle is overdue?"),
+    (58, "Engine", "Is there seepage at the bottom of the brake reservoir?"),
+    (59, "Engine", "Is there sludge in the coolant reservoir?"),
+    (60, "Engine", "If equipped with a timing belt, is it over four years old or of unknown age?"),
+    (61, "Engine", "Does oil from the dipstick appear gooey or black on a clean rag?"),
+    (62, "Engine", "Are there shiny metallic particles in the oil?"),
+    (63, "Engine", "Does the oil look milky or smell like gasoline?"),
+    (64, "Engine", "Are there thick black deposits under the oil filler cap?"),
+    (65, "Engine", "Does the automatic-transmission fluid smell burnt?"),
+    (66, "Engine", "Is the transmission fluid dark or full of black particles?"),
+    (67, "Engine, Advanced", "Is battery standby current above 75 milliamps?"),
+    (68, "Engine, Advanced", "Is voltage between coolant and battery ground above 250 millivolts?"),
+    (69, "Engine, Advanced", "Are there pending scan-tool codes?"),
+    (70, "Engine, Advanced", "Does the cooling system leak during a pressure test?"),
+    (71, "Engine, Advanced", "Is any cylinder compression 25 percent or more below the highest cylinder?"),
+    (72, "Engine, Advanced", "Does any cylinder show more than 15 percent leak-down?"),
+    (73, "Powertrain Startup", "Are there strange noises such as belt squeal or an exhaust leak?"),
+    (74, "Powertrain Startup", "With the key on, do any warning lights fail to illuminate?"),
+    (75, "Powertrain Startup", "After startup, do any warning lights remain on?"),
+    (76, "Powertrain Startup", "Does the airbag light stay on or blink?"),
+    (77, "Powertrain Startup", "Does the engine fail to settle into a consistent idle?"),
+    (78, "Powertrain Startup", "Does an automatic transmission clunk when shifted into drive?"),
+    (79, "Powertrain Startup", "Does a manual-transmission clutch feel stiff or jerky?"),
+    (80, "On the Road", "During tight circles, does anything rub or clunk?"),
+    (81, "On the Road", "During firm braking, does the pedal feel soft or mushy?"),
+    (82, "On the Road", "Does brake-pedal feel change from one stop to the next?"),
+    (83, "On the Road", "Does the vehicle veer while braking?"),
+    (84, "On the Road", "Does the vehicle continue bouncing after normal road bumps?"),
+    (85, "On the Road", "Are there loud suspension clunks or creaks?"),
+    (86, "On the Road", "Is there vibration at highway speed?"),
+    (87, "On the Road", "Is the steering wheel off-center while traveling straight?"),
+    (88, "On the Road", "Is there excessive wind noise?"),
+    (89, "On the Road", "Do interior pieces rattle over bumps?"),
+    (90, "On the Road", "Does the vehicle pull to one side?"),
+    (91, "On the Road", "Does the transmission jerk at shift points under brisk acceleration?"),
+    (92, "On the Road", "Does the vehicle accelerate in fits and starts?"),
+    (93, "On the Road", "For a manual transmission, does the clutch slip under a high-gear load test?"),
+    (94, "On the Road", "Is there engine knocking that speeds up with engine RPM?"),
+    (95, "On the Road", "Does the vehicle generally feel excessively worn out?"),
+    (96, "Test Drive With a Friend", "Are any headlamps, marker lights, or brake lights inoperative?"),
+    (97, "Test Drive With a Friend", "Is there sustained visible smoke immediately after startup?"),
+    (98, "Test Drive With a Friend", "Do the wheels wobble or does the vehicle have an unusual stance?"),
+    (99, "Test Drive With a Friend", "Is there exhaust smoke during acceleration?"),
+    (100, "Post-Test-Drive", "After the drive, is there a hissing noise under the hood?"),
+    (101, "Post-Test-Drive", "After the drive, are there fresh fluid leaks under the vehicle?"),
+]
+
 PRICE_LIST_ITEMS = [
     {
         "Service": "Brake pads only (one axle)",
@@ -1780,6 +1886,159 @@ def generate_work_order_html(row: pd.Series) -> str:
     return document_html
 
 
+def inspection_template_df(section: str) -> pd.DataFrame:
+    rows = [
+        {
+            "#": number,
+            "Inspection Item": question,
+            "Deal Breaker": number in INSPECTION_DEAL_BREAKERS,
+            "Result": "Not checked",
+            "Notes": "",
+        }
+        for number, item_section, question in USED_CAR_INSPECTION_ITEMS
+        if item_section == section
+    ]
+    return pd.DataFrame(rows)
+
+
+def inspection_summary(results: pd.DataFrame) -> dict[str, int]:
+    result_values = results["Result"].fillna("Not checked").astype(str)
+    checked = result_values.isin(["Yes", "No"])
+    concerns = result_values.eq("Yes")
+    deal_breakers = concerns & results["Deal Breaker"].fillna(False).astype(bool)
+    return {
+        "checked": int(checked.sum()),
+        "concerns": int(concerns.sum()),
+        "deal_breakers": int(deal_breakers.sum()),
+        "remaining": int((~checked).sum()),
+    }
+
+
+def generate_inspection_html(details: dict, results: pd.DataFrame) -> str:
+    """Generate a printable Letter-size used-car inspection report."""
+    summary = inspection_summary(results)
+    asking_price = numeric_value(details.get("asking_price"))
+    asking_price_text = safe_money(asking_price) if asking_price > 0 else "—"
+    result_rows = []
+    for section in dict.fromkeys(item[1] for item in USED_CAR_INSPECTION_ITEMS):
+        section_df = results[results["Section"].eq(section)]
+        rows_html = []
+        for _, item in section_df.iterrows():
+            result = str(item.get("Result", "Not checked") or "Not checked")
+            if result not in INSPECTION_RESULT_OPTIONS:
+                result = "Not checked"
+            is_deal_breaker = bool(item.get("Deal Breaker", False))
+            row_class = " concern" if result == "Yes" else ""
+            deal_breaker_text = "DEAL BREAKER" if is_deal_breaker else ""
+            rows_html.append(
+                f"""
+                <tr class="{row_class.strip()}">
+                    <td class="number">{int(item["#"])}</td>
+                    <td>{safe_text(item.get("Inspection Item"))}<div class="deal-breaker">{deal_breaker_text}</div></td>
+                    <td class="result">{safe_text(result)}</td>
+                    <td>{safe_text(item.get("Notes"), "")}</td>
+                </tr>
+                """
+            )
+        result_rows.append(
+            f"""
+            <section class="inspection-section">
+                <h2>{safe_text(section)}</h2>
+                <table>
+                    <thead><tr><th>#</th><th>Inspection item</th><th>Result</th><th>Notes</th></tr></thead>
+                    <tbody>{''.join(rows_html)}</tbody>
+                </table>
+            </section>
+            """
+        )
+
+    report_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Used-Car Inspection - {safe_text(details.get("vin"), "Vehicle")}</title>
+    <style>
+        @page {{ size: Letter; margin: 0.45in; }}
+        * {{ box-sizing: border-box; }}
+        body {{ max-width: 7.6in; margin: 0 auto; padding: 18px; color: #111; background: #fff; font: 10px/1.35 Arial, Helvetica, sans-serif; }}
+        .print-button {{ margin: 0 0 14px; padding: 7px 12px; border: 1px solid #333; background: #fff; color: #111; font: inherit; cursor: pointer; }}
+        header {{ display: flex; justify-content: space-between; gap: 24px; padding-bottom: 10px; border-bottom: 2px solid #111; break-inside: avoid; }}
+        .shop {{ font-size: 20px; font-weight: 700; }}
+        .subtitle {{ color: #444; }}
+        .report-title {{ text-align: right; font-size: 17px; font-weight: 700; }}
+        .meta-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 16px; padding: 10px 0; border-bottom: 1px solid #555; break-inside: avoid; }}
+        .meta.wide {{ grid-column: span 2; }}
+        .label {{ color: #555; font-size: 8px; font-weight: 700; text-transform: uppercase; }}
+        .value {{ margin-top: 2px; overflow-wrap: anywhere; }}
+        .summary {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; break-inside: avoid; }}
+        .summary-item {{ padding: 7px; border: 1px solid #777; text-align: center; }}
+        .summary-number {{ font-size: 16px; font-weight: 700; }}
+        .inspection-section {{ margin-top: 12px; break-inside: auto; }}
+        h2 {{ margin: 0; padding: 4px 6px; border: 1px solid #555; background: #eee; font-size: 10px; }}
+        table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+        thead {{ display: table-header-group; }}
+        tr {{ break-inside: avoid; page-break-inside: avoid; }}
+        th, td {{ padding: 4px 5px; border: 1px solid #999; text-align: left; vertical-align: top; overflow-wrap: anywhere; }}
+        th {{ background: #f5f5f5; font-size: 8px; text-transform: uppercase; }}
+        th:nth-child(1) {{ width: 5%; }}
+        th:nth-child(2) {{ width: 57%; }}
+        th:nth-child(3) {{ width: 12%; }}
+        th:nth-child(4) {{ width: 26%; }}
+        .number, .result {{ text-align: center; }}
+        .concern {{ background: #fff1f1; }}
+        .deal-breaker {{ margin-top: 2px; color: #a00000; font-size: 7px; font-weight: 700; }}
+        .codes {{ margin: 10px 0; padding: 7px; border: 1px solid #777; white-space: pre-wrap; break-inside: avoid; }}
+        .signatures {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; margin-top: 18px; break-inside: avoid; }}
+        .signature-line {{ height: 30px; border-bottom: 1px solid #111; }}
+        .signature-label {{ margin-top: 3px; color: #555; font-size: 8px; }}
+        footer {{ margin-top: 16px; padding-top: 7px; border-top: 1px solid #555; text-align: center; font-size: 8px; }}
+        @media screen and (max-width: 700px) {{
+            body {{ padding: 12px; }}
+            .meta-grid, .summary {{ grid-template-columns: 1fr 1fr; }}
+            .meta.wide {{ grid-column: span 2; }}
+        }}
+        @media print {{ body {{ max-width: none; margin: 0; padding: 0; }} .no-print {{ display: none !important; }} }}
+    </style>
+</head>
+<body>
+    <button class="print-button no-print" onclick="window.print()">Print Inspection</button>
+    <header>
+        <div><div class="shop">TIANWIN GARAGE</div><div class="subtitle">Mobile Automotive Service</div></div>
+        <div class="report-title">USED-CAR INSPECTION</div>
+    </header>
+    <div class="meta-grid">
+        <div class="meta"><div class="label">Inspection Date</div><div class="value">{safe_text(details.get("inspection_date"))}</div></div>
+        <div class="meta"><div class="label">Inspector</div><div class="value">{safe_text(details.get("inspector"))}</div></div>
+        <div class="meta"><div class="label">Order ID</div><div class="value">{safe_text(details.get("order_id"))}</div></div>
+        <div class="meta"><div class="label">Key</div><div class="value">{"Available" if details.get("key_available") else "Not available"}</div></div>
+        <div class="meta"><div class="label">Year</div><div class="value">{safe_text(details.get("year"))}</div></div>
+        <div class="meta wide"><div class="label">Make / Model</div><div class="value">{safe_text(details.get("model"))}</div></div>
+        <div class="meta"><div class="label">Mileage</div><div class="value">{safe_text(details.get("mileage"))}</div></div>
+        <div class="meta wide"><div class="label">VIN</div><div class="value">{safe_text(details.get("vin"))}</div></div>
+        <div class="meta"><div class="label">Asking Price</div><div class="value">{asking_price_text}</div></div>
+        <div class="meta"><div class="label">Customer / Seller</div><div class="value">{safe_text(details.get("customer"))}</div></div>
+    </div>
+    <div class="codes"><span class="label">Scan-tool codes</span><br>{safe_text(details.get("scan_codes"), "None recorded")}</div>
+    <div class="summary">
+        <div class="summary-item"><div class="summary-number">{summary["checked"]}</div><div>Checked</div></div>
+        <div class="summary-item"><div class="summary-number">{summary["concerns"]}</div><div>Yes findings</div></div>
+        <div class="summary-item"><div class="summary-number">{summary["deal_breakers"]}</div><div>Deal breakers</div></div>
+        <div class="summary-item"><div class="summary-number">{summary["remaining"]}</div><div>Not checked</div></div>
+    </div>
+    {''.join(result_rows)}
+    <div class="signatures">
+        <div><div class="signature-line"></div><div class="signature-label">Inspector Signature</div></div>
+        <div><div class="signature-line"></div><div class="signature-label">Date</div></div>
+        <div><div class="signature-line"></div><div class="signature-label">Customer Signature</div></div>
+        <div><div class="signature-line"></div><div class="signature-label">Date</div></div>
+    </div>
+    <footer>Inspection findings reflect visible conditions at the time of inspection and are not a warranty.</footer>
+</body>
+</html>"""
+    return report_html
+
+
 st.set_page_config(
     page_title="Tianwin Garage — Service Operations",
     page_icon="🚗",
@@ -2049,7 +2308,7 @@ cash_orders = payment_summary["Cash"]["orders"]
 zelle_orders = payment_summary["Zelle"]["orders"]
 unclassified_orders = payment_summary["Unclassified"]["orders"]
 
-tabs = st.tabs(["Overview", "Orders", "New Order", "Pricing", "Work Order"])
+tabs = st.tabs(["Overview", "Orders", "New Order", "Pricing", "Work Order", "Used-Car Inspection"])
 
 with tabs[0]:
     st.subheader("Latest Orders")
@@ -2552,3 +2811,157 @@ with tabs[4]:
                 file_name=filename,
                 mime="text/html"
             )
+
+with tabs[5]:
+    st.subheader("Used-Car Inspection")
+    st.caption("Complete the 101-point checklist, review findings, and print or download the inspection report.")
+
+    inspection_orders = real_orders_df(display_df).reset_index(drop=True)
+    source_options = [-1] + list(range(len(inspection_orders)))
+
+    def inspection_source_label(index: int) -> str:
+        if index == -1:
+            return "Manual inspection (not linked to an order)"
+        source_row = inspection_orders.iloc[index]
+        return (
+            f"{source_row.get('Order ID', 'No ID')} | "
+            f"{source_row.get('Vehicle (Year Make Model)', 'Vehicle not recorded')} | "
+            f"{source_row.get('Customer', 'Customer not recorded')}"
+        )
+
+    source_index = st.selectbox(
+        "Prefill from order",
+        source_options,
+        format_func=inspection_source_label,
+        key="inspection_source_order",
+    )
+    source_row = pd.Series(dtype=object) if source_index == -1 else inspection_orders.iloc[source_index]
+
+    def inspection_source_value(column: str) -> str:
+        value = source_row.get(column, "")
+        if value is None or pd.isna(value):
+            return ""
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value).strip()
+
+    source_vehicle = inspection_source_value("Vehicle (Year Make Model)")
+    vehicle_match = re.match(r"^\s*((?:19|20)\d{2})\s+(.+)$", source_vehicle)
+    default_year = vehicle_match.group(1) if vehicle_match else ""
+    default_model = vehicle_match.group(2) if vehicle_match else source_vehicle
+    source_key = "manual" if source_index == -1 else f"order_{source_index}"
+
+    detail_row_1 = st.columns(4)
+    inspection_date = detail_row_1[0].date_input(
+        "Inspection date", value=app_today().date(), key=f"inspection_date_{source_key}"
+    )
+    inspector = detail_row_1[1].text_input("Inspector", key=f"inspection_inspector_{source_key}")
+    year = detail_row_1[2].text_input("Year", value=default_year, key=f"inspection_year_{source_key}")
+    mileage = detail_row_1[3].text_input(
+        "Mileage", value=inspection_source_value("Mileage"), key=f"inspection_mileage_{source_key}"
+    )
+
+    detail_row_2 = st.columns([2, 2, 1])
+    model = detail_row_2[0].text_input("Make / model", value=default_model, key=f"inspection_model_{source_key}")
+    vin = detail_row_2[1].text_input("VIN", value=inspection_source_value("VIN"), key=f"inspection_vin_{source_key}")
+    asking_price = detail_row_2[2].number_input(
+        "Asking price ($)", min_value=0.0, value=0.0, step=100.0, format="%.2f", key=f"inspection_price_{source_key}"
+    )
+
+    detail_row_3 = st.columns([2, 1])
+    scan_codes = detail_row_3[0].text_area(
+        "Scan-tool codes (if any)", height=88, key=f"inspection_codes_{source_key}"
+    )
+    key_available = detail_row_3[1].checkbox("Vehicle key available", value=True, key=f"inspection_key_{source_key}")
+
+    editor_prefix = f"inspection_editor_{source_key}_"
+    if st.button("Reset checklist", key=f"inspection_reset_{source_key}"):
+        for session_key in list(st.session_state):
+            if session_key.startswith(editor_prefix):
+                del st.session_state[session_key]
+        st.rerun()
+
+    st.markdown("### Inspection Checklist")
+    st.caption("Answer Yes when the condition described is present. Red deal-breaker rows require special attention.")
+    inspection_sections = list(dict.fromkeys(item[1] for item in USED_CAR_INSPECTION_ITEMS))
+    edited_sections = []
+    for section_index, section in enumerate(inspection_sections):
+        section_df = inspection_template_df(section)
+        with st.expander(f"{section} · {len(section_df)} items", expanded=section_index == 0):
+            edited_section = st.data_editor(
+                section_df,
+                width="stretch",
+                hide_index=True,
+                height=min(620, 42 + 35 * len(section_df)),
+                disabled=["#", "Inspection Item", "Deal Breaker"],
+                column_config={
+                    "#": st.column_config.NumberColumn("#", width="small", format="%d"),
+                    "Inspection Item": st.column_config.TextColumn("Inspection Item", width="large"),
+                    "Deal Breaker": st.column_config.CheckboxColumn("Deal Breaker", width="small"),
+                    "Result": st.column_config.SelectboxColumn(
+                        "Result", options=INSPECTION_RESULT_OPTIONS, required=True, width="medium"
+                    ),
+                    "Notes": st.column_config.TextColumn("Notes", width="large"),
+                },
+                key=f"{editor_prefix}{section_index}",
+            )
+        edited_section["Section"] = section
+        edited_sections.append(edited_section)
+
+    inspection_results = pd.concat(edited_sections, ignore_index=True)
+    inspection_results = inspection_results[["#", "Section", "Inspection Item", "Deal Breaker", "Result", "Notes"]]
+    summary = inspection_summary(inspection_results)
+
+    st.markdown("### Inspection Summary")
+    summary_columns = st.columns(4)
+    summary_columns[0].metric("Checked", f"{summary['checked']} / {len(inspection_results)}")
+    summary_columns[1].metric("Yes Findings", summary["concerns"])
+    summary_columns[2].metric("Deal Breakers", summary["deal_breakers"])
+    summary_columns[3].metric("Not Checked", summary["remaining"])
+
+    if summary["deal_breakers"]:
+        st.error("One or more deal-breaker conditions were marked Yes. Review them before purchase.")
+    elif summary["concerns"] > 10:
+        st.warning("This vehicle has many recorded concerns. A specialist inspection is recommended before purchase.")
+    elif summary["concerns"]:
+        st.info("Review the recorded concerns and estimate repair costs before making an offer.")
+    elif summary["checked"]:
+        st.success("No concerns have been marked Yes in the completed checks.")
+
+    inspection_details = {
+        "inspection_date": inspection_date.strftime("%Y-%m-%d"),
+        "inspector": inspector,
+        "order_id": inspection_source_value("Order ID"),
+        "customer": inspection_source_value("Customer"),
+        "year": year,
+        "model": model,
+        "vin": vin,
+        "mileage": mileage,
+        "asking_price": asking_price,
+        "scan_codes": scan_codes,
+        "key_available": key_available,
+    }
+    inspection_html = generate_inspection_html(inspection_details, inspection_results)
+    safe_vehicle_name = "_".join(part for part in [year, model] if part).strip().replace(" ", "_")
+    safe_vehicle_name = re.sub(r"[^A-Za-z0-9_-]", "", safe_vehicle_name) or "vehicle"
+    inspection_filename = f"used_car_inspection_{safe_vehicle_name}_{inspection_date.strftime('%Y%m%d')}"
+
+    download_columns = st.columns(2)
+    download_columns[0].download_button(
+        "Download Inspection CSV",
+        inspection_results.to_csv(index=False).encode("utf-8"),
+        file_name=f"{inspection_filename}.csv",
+        mime="text/csv",
+        width="stretch",
+    )
+    download_columns[1].download_button(
+        "Download Printable Inspection",
+        inspection_html,
+        file_name=f"{inspection_filename}.html",
+        mime="text/html",
+        width="stretch",
+    )
+
+    st.markdown("### Print Preview")
+    st.caption("Use the Print Inspection button in the preview to print or save as PDF.")
+    st.components.v1.html(inspection_html, height=900, scrolling=True)
