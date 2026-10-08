@@ -1041,119 +1041,6 @@ def prepare_cash_basis_df(dfx: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def render_revenue_list(dfx: pd.DataFrame) -> None:
-    st.markdown("#### Revenue List")
-    st.caption("Paid transactions recorded in the order history.")
-
-    revenue_df = prepare_cash_basis_df(dfx)
-    revenue_df = revenue_df[revenue_df["Is Paid"]].copy()
-    revenue_df["Payment"] = revenue_df["Payment Method"].where(
-        revenue_df["Payment Method"].isin(["Cash", "Zelle"]),
-        "Unclassified",
-    )
-
-    if revenue_df.empty:
-        st.info("No paid revenue transactions found yet.")
-        return
-
-    valid_revenue_dates = revenue_df["Date Parsed"].dropna()
-    filter_col_1, filter_col_2, filter_col_3 = st.columns([1, 1, 1.4])
-
-    if valid_revenue_dates.empty:
-        default_start = app_today().date()
-        default_end = default_start
-    else:
-        default_start = valid_revenue_dates.min().date()
-        default_end = valid_revenue_dates.max().date()
-
-    revenue_start = filter_col_1.date_input(
-        "From",
-        value=default_start,
-        key="revenue_start_date",
-    )
-    revenue_end = filter_col_2.date_input(
-        "To",
-        value=default_end,
-        key="revenue_end_date",
-    )
-    payment_options = [
-        method
-        for method in ["Cash", "Zelle", "Unclassified"]
-        if method in revenue_df["Payment"].unique()
-    ]
-    selected_payments = filter_col_3.multiselect(
-        "Payment method",
-        payment_options,
-        default=payment_options,
-        key="revenue_payment_methods",
-    )
-
-    range_start = pd.Timestamp(min(revenue_start, revenue_end))
-    range_end = pd.Timestamp(max(revenue_start, revenue_end))
-    revenue_filtered = revenue_df[
-        revenue_df["Date Parsed"].between(range_start, range_end, inclusive="both")
-        & revenue_df["Payment"].isin(selected_payments)
-    ].copy()
-    revenue_filtered = sort_orders_by_datetime(revenue_filtered)
-
-    transaction_count = len(revenue_filtered)
-    collected_total = float(revenue_filtered["Collected Revenue"].sum())
-    contribution_total = float(revenue_filtered["Recorded Contribution"].sum())
-    average_ticket = collected_total / transaction_count if transaction_count else 0.0
-
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("Transactions", transaction_count)
-    metric_cols[1].metric("Collected Revenue", money(collected_total))
-    metric_cols[2].metric("Recorded Contribution", money(contribution_total))
-    metric_cols[3].metric("Average Ticket", money(average_ticket))
-
-    revenue_columns = [
-        "Date",
-        "Time",
-        "Order ID",
-        "Customer",
-        "Vehicle (Year Make Model)",
-        "Job / Notes",
-        "Payment",
-        "Collected Revenue",
-        "Recorded Contribution",
-    ]
-    revenue_list = revenue_filtered[
-        [column for column in revenue_columns if column in revenue_filtered.columns]
-    ].copy()
-    revenue_list = revenue_list.rename(
-        columns={
-            "Vehicle (Year Make Model)": "Vehicle",
-            "Job / Notes": "Service",
-        }
-    )
-
-    if revenue_list.empty:
-        st.info("No revenue transactions match these filters.")
-    else:
-        st.dataframe(
-            revenue_list,
-            width="stretch",
-            hide_index=True,
-            column_config={
-                "Collected Revenue": st.column_config.NumberColumn(
-                    "Collected Revenue", format="$%.2f"
-                ),
-                "Recorded Contribution": st.column_config.NumberColumn(
-                    "Recorded Contribution", format="$%.2f"
-                ),
-            },
-        )
-
-    st.download_button(
-        "Download revenue list (CSV)",
-        data=revenue_list.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"tianwin_revenue_{range_start:%Y%m%d}_{range_end:%Y%m%d}.csv",
-        mime="text/csv",
-        disabled=revenue_list.empty,
-    )
-
-
 def continuous_weekly_summary(dfx: pd.DataFrame) -> pd.DataFrame:
     valid = dfx[dfx["Date Parsed"].notna()].copy()
     columns = ["Week", "Collected Revenue", "Recorded Contribution", "Paid Orders", "Average Ticket"]
@@ -2434,6 +2321,7 @@ with tabs[0]:
         "Vehicle (Year Make Model)",
         "Job / Notes",
         "Total Price",
+        "Recorded Contribution",
         "Paid?",
     ]
     latest_preview = latest_orders[[col for col in latest_columns if col in latest_orders.columns]].copy()
@@ -2445,10 +2333,13 @@ with tabs[0]:
             latest_preview,
             width="stretch",
             hide_index=True,
-            column_config={"Total Price": st.column_config.NumberColumn("Total Price", format="$%.2f")},
+            column_config={
+                "Total Price": st.column_config.NumberColumn("Total Price", format="$%.2f"),
+                "Recorded Contribution": st.column_config.NumberColumn(
+                    "Recorded Contribution", format="$%.2f"
+                ),
+            },
         )
-
-    render_revenue_list(quick_df)
 
     st.divider()
 
