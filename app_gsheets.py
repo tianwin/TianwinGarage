@@ -2398,7 +2398,7 @@ with tabs[0]:
         range_option = st.selectbox(
             "Analysis range",
             ["This Week", "Last 4 Active Weeks", "Last 12 Active Weeks", "All History"],
-            index=1,
+            index=3,
             key="primary_analysis_range",
         )
         analysis_dfx = prepare_cash_basis_df(selected_analysis_df(quick_df, range_option, current_week))
