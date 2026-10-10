@@ -2457,6 +2457,7 @@ with tabs[0]:
                 .agg(
                     Orders=("Date Parsed", "size"),
                     **{
+                        "Recorded Contribution": ("Recorded Contribution", "sum"),
                         "Collected Revenue": ("Collected Revenue", "sum"),
                         "Cash": ("Collected Revenue", lambda s: s[year_df.loc[s.index, "Payment Method"].eq("Cash")].sum()),
                         "Zelle": ("Collected Revenue", lambda s: s[year_df.loc[s.index, "Payment Method"].eq("Zelle")].sum()),
@@ -2468,6 +2469,7 @@ with tabs[0]:
             calendar_data = [
                 [
                     row["Date Parsed"].strftime("%Y-%m-%d"),
+                    round(float(row["Recorded Contribution"]), 2),
                     round(float(row["Collected Revenue"]), 2),
                     int(row["Orders"]),
                     round(float(row["Cash"]), 2),
@@ -2476,13 +2478,14 @@ with tabs[0]:
                 ]
                 for _, row in daily.iterrows()
             ]
-            max_revenue = max([item[1] for item in calendar_data] or [0])
+            min_contribution = min([item[1] for item in calendar_data] or [0])
+            max_contribution = max([item[1] for item in calendar_data] or [0])
             render_echart(
                 {
                     "tooltip": {"trigger": "item"},
                     "visualMap": {
-                        "min": 0,
-                        "max": max(1, max_revenue),
+                        "min": min(0, min_contribution),
+                        "max": max(1, max_contribution),
                         "orient": "horizontal",
                         "left": "center",
                         "top": 0,
@@ -2503,7 +2506,7 @@ with tabs[0]:
                 height=360,
                 tooltip_formatter_js="""function (params) {
                     const v = params.value;
-                    return `${v[0]}<br/>Orders: ${v[2]}<br/>Collected Revenue: $${Number(v[1]).toFixed(2)}<br/>Cash: $${Number(v[3]).toFixed(2)}<br/>Zelle: $${Number(v[4]).toFixed(2)}<br/>Other paid: $${Number(v[5]).toFixed(2)}`;
+                    return `${v[0]}<br/>Orders: ${v[3]}<br/>Recorded Contribution: $${Number(v[1]).toFixed(2)}<br/>Collected Revenue: $${Number(v[2]).toFixed(2)}<br/>Cash: $${Number(v[4]).toFixed(2)}<br/>Zelle: $${Number(v[5]).toFixed(2)}<br/>Other paid: $${Number(v[6]).toFixed(2)}`;
                 }""",
             )
 
