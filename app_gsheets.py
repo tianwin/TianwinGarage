@@ -2419,24 +2419,17 @@ with tabs[0]:
                     "yAxis": {"type": "value", "name": "Dollars", "axisLabel": {"formatter": "${value}"}},
                     "series": [
                         {
-                            "name": "Collected Revenue",
-                            "type": "bar",
-                            "data": weekly["Collected Revenue"].round(2).tolist(),
-                            "itemStyle": {"color": "#2563eb"},
-                        },
-                        {
                             "name": "Recorded Contribution",
-                            "type": "line",
+                            "type": "bar",
                             "data": weekly["Recorded Contribution"].round(2).tolist(),
-                            "smooth": True,
                             "itemStyle": {"color": "#16a34a"},
                         },
                         {
-                            "name": "Average Ticket",
+                            "name": "Collected Revenue",
                             "type": "line",
-                            "data": weekly["Average Ticket"].round(2).tolist(),
+                            "data": weekly["Collected Revenue"].round(2).tolist(),
                             "smooth": True,
-                            "itemStyle": {"color": "#d97706"},
+                            "itemStyle": {"color": "#2563eb"},
                         },
                     ],
                 },
