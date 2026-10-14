@@ -2369,16 +2369,25 @@ with tabs[0]:
     else:
         today = app_today()
         current_week = today - pd.Timedelta(days=today.weekday())
-        current_week_df = dfx[dfx["Week"].eq(current_week)].copy()
-        identified_customers = dfx[
-            dfx["Customer"].fillna("").astype(str).str.strip().ne("")
+        range_option = st.selectbox(
+            "Analysis range",
+            ["This Week", "Last 4 Active Weeks", "Last 12 Active Weeks", "All History"],
+            index=3,
+            key="primary_analysis_range",
+        )
+        analysis_dfx = prepare_cash_basis_df(
+            selected_analysis_df(quick_df, range_option, current_week)
+        )
+        current_week_df = analysis_dfx[analysis_dfx["Week"].eq(current_week)].copy()
+        identified_customers = analysis_dfx[
+            analysis_dfx["Customer"].fillna("").astype(str).str.strip().ne("")
         ].copy()
-        repeat_customers_all = int((identified_customers["Customer"].value_counts() > 1).sum())
+        repeat_customers = int((identified_customers["Customer"].value_counts() > 1).sum())
 
-        collected_revenue = float(dfx["Collected Revenue"].sum())
-        paid_orders = int(dfx["Is Paid"].sum())
+        collected_revenue = float(analysis_dfx["Collected Revenue"].sum())
+        paid_orders = int(analysis_dfx["Is Paid"].sum())
         average_ticket = collected_revenue / paid_orders if paid_orders else 0.0
-        recorded_contribution = float(dfx["Recorded Contribution"].sum())
+        recorded_contribution = float(analysis_dfx["Recorded Contribution"].sum())
         current_week_revenue = float(current_week_df["Collected Revenue"].sum())
         current_week_orders = int(current_week_df["Is Paid"].sum())
         current_week_contribution = float(current_week_df["Recorded Contribution"].sum())
@@ -2390,18 +2399,10 @@ with tabs[0]:
         c4.metric("Recorded Contribution", money(recorded_contribution))
 
         c5, c6, c7, c8 = st.columns(4)
-        c5.metric("Repeat Customers", repeat_customers_all)
+        c5.metric("Repeat Customers", repeat_customers)
         c6.metric("Current Week Revenue", money(current_week_revenue))
         c7.metric("Current Week Orders", current_week_orders)
         c8.metric("Current Week Contribution", money(current_week_contribution))
-
-        range_option = st.selectbox(
-            "Analysis range",
-            ["This Week", "Last 4 Active Weeks", "Last 12 Active Weeks", "All History"],
-            index=3,
-            key="primary_analysis_range",
-        )
-        analysis_dfx = prepare_cash_basis_df(selected_analysis_df(quick_df, range_option, current_week))
 
         st.markdown("### Weekly Performance")
         weekly = continuous_weekly_summary(analysis_dfx)
