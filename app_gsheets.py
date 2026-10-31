@@ -43,7 +43,9 @@ import time
 import json
 import html
 import hmac
-from datetime import datetime
+import hashlib
+import secrets
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -51,6 +53,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import altair as alt
+from streamlit_cookies_controller import CookieController
 
 # Google Sheets API (google-api-python-client)
 try:
@@ -74,7 +77,8 @@ AUTOZONE_INVOICES_PATH = DATA_DIR / "autozone_invoices.csv"
 APP_TIMEZONE = ZoneInfo("America/Los_Angeles")
 DEFAULT_ANALYTICS_URL = "https://tianwin-garage-analytics.streamlit.app/"
 APP_PASSWORD = "Qwer1234"
-TRUSTED_IPS_WORKSHEET = "Trusted IPs"
+ACCESS_COOKIE_NAME = "tianwin_garage_access"
+ACCESS_COOKIE_DAYS = 365
 
 COLUMNS = [
     "Order Status",
@@ -1556,126 +1560,49 @@ def append_order_gsheets(row: pd.Series) -> list[str]:
     return skipped_columns
 
 
-def current_client_ip() -> Optional[str]:
-    try:
-        ip_address = st.context.ip_address
-    except Exception:
-        ip_address = None
-    return str(ip_address).strip() if ip_address else None
+def create_access_cookie_value() -> str:
+    token = secrets.token_urlsafe(32)
+    signature = hmac.new(
+        APP_PASSWORD.encode("utf-8"), token.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return f"{token}.{signature}"
 
 
-def load_trusted_ip_addresses() -> set[str]:
-    spreadsheet_id, _, sa_json_path = _sheets_env()
-    service = get_sheets_service(
-        sa_json_path, None if sa_json_path else _service_account_json()
-    )
-    try:
-        response = execute_sheets_request(
-            service.spreadsheets().values().get(
-                spreadsheetId=spreadsheet_id,
-                range=f"'{TRUSTED_IPS_WORKSHEET}'!A2:A",
-            ),
-            "load trusted IPs",
-        )
-    except Exception as exc:
-        if HttpError is not None and isinstance(exc, HttpError):
-            if getattr(exc.resp, "status", None) == 400:
-                return set()
-        raise
-
-    return {
-        str(row[0]).strip()
-        for row in response.get("values", [])
-        if row and str(row[0]).strip()
-    }
+def valid_access_cookie(value: object) -> bool:
+    if not isinstance(value, str) or "." not in value:
+        return False
+    token, signature = value.rsplit(".", 1)
+    expected = hmac.new(
+        APP_PASSWORD.encode("utf-8"), token.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 
-def ensure_trusted_ips_worksheet(service, spreadsheet_id: str) -> None:
-    metadata = execute_sheets_request(
-        service.spreadsheets().get(
-            spreadsheetId=spreadsheet_id,
-            fields="sheets.properties.title",
-        ),
-        "inspect worksheets",
-    )
-    titles = {
-        sheet.get("properties", {}).get("title", "")
-        for sheet in metadata.get("sheets", [])
-    }
-    if TRUSTED_IPS_WORKSHEET not in titles:
-        execute_sheets_request(
-            service.spreadsheets().batchUpdate(
-                spreadsheetId=spreadsheet_id,
-                body={
-                    "requests": [
-                        {"addSheet": {"properties": {"title": TRUSTED_IPS_WORKSHEET}}}
-                    ]
-                },
-            ),
-            "create trusted IP worksheet",
-        )
-        execute_sheets_request(
-            service.spreadsheets().values().update(
-                spreadsheetId=spreadsheet_id,
-                range=f"'{TRUSTED_IPS_WORKSHEET}'!A1:C1",
-                valueInputOption="RAW",
-                body={"values": [["IP Address", "Authorized At", "Notes"]]},
-            ),
-            "initialize trusted IP worksheet",
-        )
-
-
-def remember_trusted_ip(ip_address: str) -> None:
-    spreadsheet_id, _, sa_json_path = _sheets_env()
-    service = get_sheets_service(
-        sa_json_path, None if sa_json_path else _service_account_json()
-    )
-    ensure_trusted_ips_worksheet(service, spreadsheet_id)
-    execute_sheets_request(
-        service.spreadsheets().values().append(
-            spreadsheetId=spreadsheet_id,
-            range=f"'{TRUSTED_IPS_WORKSHEET}'!A:C",
-            valueInputOption="USER_ENTERED",
-            insertDataOption="INSERT_ROWS",
-            body={"values": [[ip_address, now_str(), "Password verified"]]},
-        ),
-        "remember trusted IP",
-    )
-
-
-def require_password_for_new_ip() -> None:
-    ip_address = current_client_ip()
-    if (
-        "authorized_ip" in st.session_state
-        and st.session_state["authorized_ip"] == ip_address
-    ):
+def require_password_for_browser() -> None:
+    if st.session_state.get("browser_authorized", False):
         return
 
-    if ip_address:
-        try:
-            if ip_address in load_trusted_ip_addresses():
-                st.session_state["authorized_ip"] = ip_address
-                return
-        except Exception:
-            pass
+    cookies = CookieController(key="tianwin_access_cookie_controller")
+    if valid_access_cookie(cookies.get(ACCESS_COOKIE_NAME)):
+        st.session_state["browser_authorized"] = True
+        return
 
     st.title("Tianwin Garage")
     st.caption("Service Operations")
-    st.write("Enter the access password to continue from this network.")
-    with st.form("ip_password_gate"):
+    st.write("Enter the access password to continue in this browser.")
+    with st.form("browser_password_gate"):
         entered_password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Unlock", type="primary")
 
     if submitted:
         if hmac.compare_digest(entered_password, APP_PASSWORD):
-            if ip_address:
-                try:
-                    remember_trusted_ip(ip_address)
-                except Exception as exc:
-                    st.error("Password accepted, but this IP could not be saved.")
-                    st.exception(exc)
-                    st.stop()
-            st.session_state["authorized_ip"] = ip_address
+            cookies.set(
+                ACCESS_COOKIE_NAME,
+                create_access_cookie_value(),
+                expires=datetime.now() + timedelta(days=ACCESS_COOKIE_DAYS),
+                same_site="strict",
+            )
+            st.session_state["browser_authorized"] = True
             st.rerun()
         else:
             st.error("Incorrect password.")
@@ -2261,7 +2188,7 @@ st.set_page_config(
     page_icon="🚗",
     layout="wide",
 )
-require_password_for_new_ip()
+require_password_for_browser()
 st.markdown(
     """
     <style>
