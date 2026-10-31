@@ -468,32 +468,89 @@ def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_autozone_invoices() -> pd.DataFrame:
+def load_autozone_transactions() -> pd.DataFrame:
     columns = [
         "Date",
         "Time",
+        "Account",
         "Type",
-        "Invoice Number",
+        "Receipt Number",
         "Parts Information",
-        "Item Count",
+        "Items",
         "Subtotal",
-        "Fees",
+        "Discount",
+        "Fees / Shipping",
         "Tax",
         "Total",
-        "Source Page",
+        "Payment",
+        "Source",
+        "Notes",
     ]
-    if not AUTOZONE_INVOICES_PATH.exists():
+    transactions = []
+
+    if gsheets_enabled():
+        spreadsheet_id, _, sa_json_path = _sheets_env()
+        service = get_sheets_service(
+            sa_json_path, None if sa_json_path else _service_account_json()
+        )
+        response = execute_sheets_request(
+            service.spreadsheets().values().get(
+                spreadsheetId=spreadsheet_id,
+                range="'Parts Purchases'!A1:O",
+                valueRenderOption="UNFORMATTED_VALUE",
+                dateTimeRenderOption="FORMATTED_STRING",
+            ),
+            "load parts purchases",
+        )
+        values = response.get("values", [])
+        if values:
+            headers = [str(value).strip() for value in values[0]]
+            sheet_rows = [
+                list(row) + [""] * (len(headers) - len(row))
+                for row in values[1:]
+            ]
+            transactions.append(pd.DataFrame(sheet_rows, columns=headers)[columns])
+
+    if not transactions and AUTOZONE_INVOICES_PATH.exists():
+        commercial = pd.read_csv(
+            AUTOZONE_INVOICES_PATH, dtype={"Invoice Number": str}
+        ).rename(
+            columns={
+                "Invoice Number": "Receipt Number",
+                "Item Count": "Items",
+                "Fees": "Fees / Shipping",
+            }
+        )
+        commercial["Account"] = "Commercial"
+        commercial["Discount"] = 0.0
+        commercial["Payment"] = ""
+        commercial["Source"] = (
+            "Invoice PDF page " + commercial["Source Page"].astype(str)
+        )
+        commercial["Notes"] = ""
+        transactions.append(commercial[columns])
+
+    if not transactions:
         return pd.DataFrame(columns=columns)
 
-    invoices = pd.read_csv(AUTOZONE_INVOICES_PATH, dtype={"Invoice Number": str})
-    for column in ["Subtotal", "Fees", "Tax", "Total"]:
-        invoices[column] = pd.to_numeric(invoices[column], errors="coerce").fillna(0.0)
-    invoices["_Sort Datetime"] = pd.to_datetime(
-        invoices["Date"].astype(str) + " " + invoices["Time"].astype(str),
+    combined = pd.concat(transactions, ignore_index=True)
+    for column in [
+        "Items",
+        "Subtotal",
+        "Discount",
+        "Fees / Shipping",
+        "Tax",
+        "Total",
+    ]:
+        combined[column] = pd.to_numeric(combined[column], errors="coerce").fillna(0.0)
+    combined["_Sort Datetime"] = pd.to_datetime(
+        combined["Date"].astype(str) + " " + combined["Time"].astype(str),
         format="%Y-%m-%d %I:%M %p",
         errors="coerce",
     )
-    return invoices.sort_values("_Sort Datetime", ascending=False).drop(columns="_Sort Datetime")
+    return combined.sort_values("_Sort Datetime", ascending=False).drop(
+        columns="_Sort Datetime"
+    )
 
 
 def real_order_mask(df: pd.DataFrame) -> pd.Series:
@@ -2792,46 +2849,74 @@ with tabs[3]:
 
 with tabs[4]:
     st.subheader("Parts Purchases")
-    st.caption("AutoZone invoices and returns transcribed from the 32-page scanned invoice archive.")
+    st.caption("Combined AutoZone transactions from the commercial and personal accounts.")
 
-    autozone_invoices = load_autozone_invoices()
-    if autozone_invoices.empty:
-        st.info("No AutoZone invoice records are available.")
+    autozone_transactions = load_autozone_transactions()
+    if autozone_transactions.empty:
+        st.info("No AutoZone transactions are available.")
     else:
-        purchase_count = int(autozone_invoices["Type"].eq("Purchase").sum())
-        return_count = int(autozone_invoices["Type"].eq("Return").sum())
-        net_spend = float(autozone_invoices["Total"].sum())
+        commercial_transactions = autozone_transactions[
+            autozone_transactions["Account"].eq("Commercial")
+        ]
+        personal_transactions = autozone_transactions[
+            autozone_transactions["Account"].eq("Personal")
+        ]
+        commercial_spend = float(commercial_transactions["Total"].sum())
+        personal_spend = float(personal_transactions["Total"].sum())
+        net_spend = commercial_spend + personal_spend
 
         invoice_metrics = st.columns(4)
-        invoice_metrics[0].metric("Documents", len(autozone_invoices))
-        invoice_metrics[1].metric("Purchases", purchase_count)
-        invoice_metrics[2].metric("Returns", return_count)
-        invoice_metrics[3].metric("Net Spend", money(net_spend))
+        invoice_metrics[0].metric("Transactions", len(autozone_transactions))
+        invoice_metrics[1].metric(
+            "Commercial",
+            money(commercial_spend),
+            f"{len(commercial_transactions)} records",
+        )
+        invoice_metrics[2].metric(
+            "Personal",
+            money(personal_spend),
+            f"{len(personal_transactions)} records",
+        )
+        invoice_metrics[3].metric("Combined Net Spend", money(net_spend))
+
+        public_transactions = autozone_transactions.drop(
+            columns=["Payment", "Source"], errors="ignore"
+        )
 
         st.dataframe(
-            autozone_invoices,
+            public_transactions,
             width="stretch",
             hide_index=True,
             row_height=72,
             column_config={
+                "Account": st.column_config.TextColumn("Account", width="small"),
+                "Receipt Number": st.column_config.TextColumn(
+                    "Receipt Number", width="medium"
+                ),
                 "Parts Information": st.column_config.TextColumn(
                     "Parts Information", width="large"
                 ),
-                "Item Count": st.column_config.NumberColumn("Items", format="%d"),
+                "Items": st.column_config.NumberColumn("Items", format="%d"),
                 "Subtotal": st.column_config.NumberColumn("Subtotal", format="$%.2f"),
-                "Fees": st.column_config.NumberColumn("Fees", format="$%.2f"),
+                "Discount": st.column_config.NumberColumn("Discount", format="$%.2f"),
+                "Fees / Shipping": st.column_config.NumberColumn(
+                    "Fees / Shipping", format="$%.2f"
+                ),
                 "Tax": st.column_config.NumberColumn("Tax", format="$%.2f"),
                 "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                "Source Page": st.column_config.NumberColumn("PDF Page", format="%d"),
+                "Notes": st.column_config.TextColumn("Notes", width="medium"),
             },
         )
         st.download_button(
-            "Download invoice table (CSV)",
-            data=autozone_invoices.to_csv(index=False).encode("utf-8-sig"),
-            file_name="tianwin_autozone_invoices.csv",
+            "Download parts purchase table (CSV)",
+            data=public_transactions.to_csv(index=False).encode("utf-8-sig"),
+            file_name="tianwin_autozone_transactions.csv",
             mime="text/csv",
         )
-        st.caption("Scanned invoice transcription. Verify against the source PDF before tax filing or bookkeeping adjustments.")
+        st.caption(
+            "Use the Account column to distinguish commercial and personal purchases. "
+            "Private payment and Gmail source details remain in Google Sheets."
+        )
 
 with tabs[5]:
     st.subheader("Work Order")
