@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+tmp/
 
 # Local/private configuration
 .env
@@ -11,4 +12,5 @@ start.bash
 !sample_*.json
 
 # Local app data and generated exports
-data/
+data/*
+!data/autozone_invoices.csv

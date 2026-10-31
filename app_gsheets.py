@@ -69,6 +69,7 @@ except Exception:  # pragma: no cover
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 EXPORT_DIR = DATA_DIR / "exports"
+AUTOZONE_INVOICES_PATH = DATA_DIR / "autozone_invoices.csv"
 APP_TIMEZONE = ZoneInfo("America/Los_Angeles")
 DEFAULT_ANALYTICS_URL = "https://tianwin-garage-analytics.streamlit.app/"
 
@@ -465,6 +466,32 @@ def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
             df[price_col] = df[price_col].round(2)
     
     return df
+
+
+def load_autozone_invoices() -> pd.DataFrame:
+    columns = [
+        "Date",
+        "Time",
+        "Type",
+        "Invoice Number",
+        "Subtotal",
+        "Fees",
+        "Tax",
+        "Total",
+        "Source Page",
+    ]
+    if not AUTOZONE_INVOICES_PATH.exists():
+        return pd.DataFrame(columns=columns)
+
+    invoices = pd.read_csv(AUTOZONE_INVOICES_PATH, dtype={"Invoice Number": str})
+    for column in ["Subtotal", "Fees", "Tax", "Total"]:
+        invoices[column] = pd.to_numeric(invoices[column], errors="coerce").fillna(0.0)
+    invoices["_Sort Datetime"] = pd.to_datetime(
+        invoices["Date"].astype(str) + " " + invoices["Time"].astype(str),
+        format="%Y-%m-%d %I:%M %p",
+        errors="coerce",
+    )
+    return invoices.sort_values("_Sort Datetime", ascending=False).drop(columns="_Sort Datetime")
 
 
 def real_order_mask(df: pd.DataFrame) -> pd.Series:
@@ -2308,7 +2335,9 @@ cash_orders = payment_summary["Cash"]["orders"]
 zelle_orders = payment_summary["Zelle"]["orders"]
 unclassified_orders = payment_summary["Unclassified"]["orders"]
 
-tabs = st.tabs(["Overview", "Orders", "New Order", "Pricing", "Work Order", "Used-Car Inspection"])
+tabs = st.tabs(
+    ["Overview", "Orders", "New Order", "Pricing", "Parts Purchases", "Work Order", "Used-Car Inspection"]
+)
 
 with tabs[0]:
     st.subheader("Latest Orders")
@@ -2760,6 +2789,44 @@ with tabs[3]:
     )
 
 with tabs[4]:
+    st.subheader("Parts Purchases")
+    st.caption("AutoZone invoices and returns transcribed from the 32-page scanned invoice archive.")
+
+    autozone_invoices = load_autozone_invoices()
+    if autozone_invoices.empty:
+        st.info("No AutoZone invoice records are available.")
+    else:
+        purchase_count = int(autozone_invoices["Type"].eq("Purchase").sum())
+        return_count = int(autozone_invoices["Type"].eq("Return").sum())
+        net_spend = float(autozone_invoices["Total"].sum())
+
+        invoice_metrics = st.columns(4)
+        invoice_metrics[0].metric("Documents", len(autozone_invoices))
+        invoice_metrics[1].metric("Purchases", purchase_count)
+        invoice_metrics[2].metric("Returns", return_count)
+        invoice_metrics[3].metric("Net Spend", money(net_spend))
+
+        st.dataframe(
+            autozone_invoices,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Subtotal": st.column_config.NumberColumn("Subtotal", format="$%.2f"),
+                "Fees": st.column_config.NumberColumn("Fees", format="$%.2f"),
+                "Tax": st.column_config.NumberColumn("Tax", format="$%.2f"),
+                "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
+                "Source Page": st.column_config.NumberColumn("PDF Page", format="%d"),
+            },
+        )
+        st.download_button(
+            "Download invoice table (CSV)",
+            data=autozone_invoices.to_csv(index=False).encode("utf-8-sig"),
+            file_name="tianwin_autozone_invoices.csv",
+            mime="text/csv",
+        )
+        st.caption("Scanned invoice transcription. Verify against the source PDF before tax filing or bookkeeping adjustments.")
+
+with tabs[5]:
     st.subheader("Work Order")
     st.caption("Select an order to generate a customer-facing work order for printing.")
     
@@ -2815,7 +2882,7 @@ with tabs[4]:
                 mime="text/html"
             )
 
-with tabs[5]:
+with tabs[6]:
     st.subheader("Used-Car Inspection")
     st.caption("Complete the 101-point checklist, review findings, and print or download the inspection report.")
 
