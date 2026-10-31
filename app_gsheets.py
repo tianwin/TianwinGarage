@@ -474,6 +474,8 @@ def load_autozone_invoices() -> pd.DataFrame:
         "Time",
         "Type",
         "Invoice Number",
+        "Parts Information",
+        "Item Count",
         "Subtotal",
         "Fees",
         "Tax",
@@ -2810,7 +2812,12 @@ with tabs[4]:
             autozone_invoices,
             width="stretch",
             hide_index=True,
+            row_height=72,
             column_config={
+                "Parts Information": st.column_config.TextColumn(
+                    "Parts Information", width="large"
+                ),
+                "Item Count": st.column_config.NumberColumn("Items", format="%d"),
                 "Subtotal": st.column_config.NumberColumn("Subtotal", format="$%.2f"),
                 "Fees": st.column_config.NumberColumn("Fees", format="$%.2f"),
                 "Tax": st.column_config.NumberColumn("Tax", format="$%.2f"),
