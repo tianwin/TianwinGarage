@@ -28,6 +28,14 @@ Example secrets:
 ```toml
 GOOGLE_SHEETS_SPREADSHEET_ID = "your-spreadsheet-id"
 GOOGLE_SHEETS_WORKSHEET_NAME = "Orders"
+AUTHORIZED_EMAILS = ["owner@example.com"]
+
+[auth]
+redirect_uri = "https://your-app.streamlit.app/oauth2callback"
+cookie_secret = "a-long-random-secret"
+client_id = "your-google-oauth-client-id"
+client_secret = "your-google-oauth-client-secret"
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
 
 [google_service_account]
 type = "service_account"
@@ -42,6 +50,10 @@ auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
 client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/your-service-account%40your-project-id.iam.gserviceaccount.com"
 universe_domain = "googleapis.com"
 ```
+
+Create a Google OAuth 2.0 Web application credential and add the same `redirect_uri`
+as an authorized redirect URI. `AUTHORIZED_EMAILS` is the allowlist for people who
+can open the app; Google authentication alone does not grant access.
 
 Share the Google Sheet with the service account email before launching the app.
 

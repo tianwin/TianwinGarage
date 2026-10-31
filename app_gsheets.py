@@ -1220,6 +1220,55 @@ def _streamlit_secret(name: str, default=None):
         return default
 
 
+def _auth_is_configured() -> bool:
+    auth = _streamlit_secret("auth")
+    if not auth:
+        return False
+
+    required_fields = (
+        "redirect_uri",
+        "cookie_secret",
+        "client_id",
+        "client_secret",
+        "server_metadata_url",
+    )
+    return all(str(auth.get(field, "")).strip() for field in required_fields)
+
+
+def _authorized_emails() -> set[str]:
+    configured = _streamlit_secret("AUTHORIZED_EMAILS", [])
+    if isinstance(configured, str):
+        configured = configured.split(",")
+    return {str(email).strip().casefold() for email in configured if str(email).strip()}
+
+
+def require_authorized_user() -> None:
+    if not _auth_is_configured():
+        st.title("Tianwin Garage")
+        st.error(
+            "Sign-in is not configured yet. The app owner needs to finish the Google login setup."
+        )
+        st.stop()
+
+    if not st.user.is_logged_in:
+        st.title("Tianwin Garage")
+        st.caption("Service Operations")
+        st.write("Sign in with an authorized Google account to continue.")
+        st.button("Continue with Google", type="primary", on_click=st.login)
+        st.stop()
+
+    email = str(getattr(st.user, "email", "")).strip().casefold()
+    if not email or email not in _authorized_emails():
+        st.title("Access denied")
+        st.error("This Google account is not authorized to view Tianwin Garage data.")
+        st.button("Sign out", on_click=st.logout)
+        st.stop()
+
+    st.sidebar.caption(f"Signed in as {email}")
+    st.sidebar.button("Sign out", on_click=st.logout, width="stretch")
+    st.sidebar.divider()
+
+
 def get_analytics_url() -> str:
     env_url = os.getenv("TIANWIN_ANALYTICS_URL", "").strip()
     if env_url:
@@ -2130,6 +2179,7 @@ st.set_page_config(
     page_icon="🚗",
     layout="wide",
 )
+require_authorized_user()
 st.markdown(
     """
     <style>
