@@ -42,6 +42,7 @@ import re
 import time
 import json
 import html
+import hmac
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
@@ -72,6 +73,8 @@ EXPORT_DIR = DATA_DIR / "exports"
 AUTOZONE_INVOICES_PATH = DATA_DIR / "autozone_invoices.csv"
 APP_TIMEZONE = ZoneInfo("America/Los_Angeles")
 DEFAULT_ANALYTICS_URL = "https://tianwin-garage-analytics.streamlit.app/"
+APP_PASSWORD = "Qwer1234"
+TRUSTED_IPS_WORKSHEET = "Trusted IPs"
 
 COLUMNS = [
     "Order Status",
@@ -1272,7 +1275,9 @@ def gsheets_enabled() -> bool:
 def get_sheets_service(sa_json_path: Optional[str], sa_json: Optional[str]):
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     if sa_json:
-        creds = Credentials.from_service_account_info(json.loads(sa_json), scopes=scopes)
+        normalized_json = sa_json.lstrip("\ufeff \t\r\n")
+        service_account_info, _ = json.JSONDecoder().raw_decode(normalized_json)
+        creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
     else:
         creds = Credentials.from_service_account_file(sa_json_path, scopes=scopes)
 
@@ -1549,6 +1554,132 @@ def append_order_gsheets(row: pd.Series) -> list[str]:
                 skipped_columns.append(item["column"])
 
     return skipped_columns
+
+
+def current_client_ip() -> Optional[str]:
+    try:
+        ip_address = st.context.ip_address
+    except Exception:
+        ip_address = None
+    return str(ip_address).strip() if ip_address else None
+
+
+def load_trusted_ip_addresses() -> set[str]:
+    spreadsheet_id, _, sa_json_path = _sheets_env()
+    service = get_sheets_service(
+        sa_json_path, None if sa_json_path else _service_account_json()
+    )
+    try:
+        response = execute_sheets_request(
+            service.spreadsheets().values().get(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{TRUSTED_IPS_WORKSHEET}'!A2:A",
+            ),
+            "load trusted IPs",
+        )
+    except Exception as exc:
+        if HttpError is not None and isinstance(exc, HttpError):
+            if getattr(exc.resp, "status", None) == 400:
+                return set()
+        raise
+
+    return {
+        str(row[0]).strip()
+        for row in response.get("values", [])
+        if row and str(row[0]).strip()
+    }
+
+
+def ensure_trusted_ips_worksheet(service, spreadsheet_id: str) -> None:
+    metadata = execute_sheets_request(
+        service.spreadsheets().get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets.properties.title",
+        ),
+        "inspect worksheets",
+    )
+    titles = {
+        sheet.get("properties", {}).get("title", "")
+        for sheet in metadata.get("sheets", [])
+    }
+    if TRUSTED_IPS_WORKSHEET not in titles:
+        execute_sheets_request(
+            service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={
+                    "requests": [
+                        {"addSheet": {"properties": {"title": TRUSTED_IPS_WORKSHEET}}}
+                    ]
+                },
+            ),
+            "create trusted IP worksheet",
+        )
+        execute_sheets_request(
+            service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{TRUSTED_IPS_WORKSHEET}'!A1:C1",
+                valueInputOption="RAW",
+                body={"values": [["IP Address", "Authorized At", "Notes"]]},
+            ),
+            "initialize trusted IP worksheet",
+        )
+
+
+def remember_trusted_ip(ip_address: str) -> None:
+    spreadsheet_id, _, sa_json_path = _sheets_env()
+    service = get_sheets_service(
+        sa_json_path, None if sa_json_path else _service_account_json()
+    )
+    ensure_trusted_ips_worksheet(service, spreadsheet_id)
+    execute_sheets_request(
+        service.spreadsheets().values().append(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{TRUSTED_IPS_WORKSHEET}'!A:C",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body={"values": [[ip_address, now_str(), "Password verified"]]},
+        ),
+        "remember trusted IP",
+    )
+
+
+def require_password_for_new_ip() -> None:
+    ip_address = current_client_ip()
+    if (
+        "authorized_ip" in st.session_state
+        and st.session_state["authorized_ip"] == ip_address
+    ):
+        return
+
+    if ip_address:
+        try:
+            if ip_address in load_trusted_ip_addresses():
+                st.session_state["authorized_ip"] = ip_address
+                return
+        except Exception:
+            pass
+
+    st.title("Tianwin Garage")
+    st.caption("Service Operations")
+    st.write("Enter the access password to continue from this network.")
+    with st.form("ip_password_gate"):
+        entered_password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Unlock", type="primary")
+
+    if submitted:
+        if hmac.compare_digest(entered_password, APP_PASSWORD):
+            if ip_address:
+                try:
+                    remember_trusted_ip(ip_address)
+                except Exception as exc:
+                    st.error("Password accepted, but this IP could not be saved.")
+                    st.exception(exc)
+                    st.stop()
+            st.session_state["authorized_ip"] = ip_address
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    st.stop()
 
 
 def load_orders() -> pd.DataFrame:
@@ -2130,6 +2261,7 @@ st.set_page_config(
     page_icon="🚗",
     layout="wide",
 )
+require_password_for_new_ip()
 st.markdown(
     """
     <style>
