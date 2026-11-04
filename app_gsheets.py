@@ -45,7 +45,7 @@ import html
 import hmac
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -53,7 +53,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import altair as alt
-from streamlit_cookies_controller import CookieController
 
 # Google Sheets API (google-api-python-client)
 try:
@@ -1578,12 +1577,34 @@ def valid_access_cookie(value: object) -> bool:
     return hmac.compare_digest(signature, expected)
 
 
+def write_access_cookie() -> None:
+    max_age = ACCESS_COOKIE_DAYS * 24 * 60 * 60
+    secure = ""
+    try:
+        if str(st.context.url).startswith("https://"):
+            secure = "; Secure"
+    except Exception:
+        pass
+    cookie = (
+        f"{ACCESS_COOKIE_NAME}={create_access_cookie_value()}; "
+        f"Path=/; Max-Age={max_age}; SameSite=Strict{secure}"
+    )
+    st.components.v1.html(
+        f"<script>document.cookie = {json.dumps(cookie)};</script>",
+        height=0,
+        width=0,
+    )
+
+
 def require_password_for_browser() -> None:
     if st.session_state.get("browser_authorized", False):
         return
 
-    cookies = CookieController(key="tianwin_access_cookie_controller")
-    if valid_access_cookie(cookies.get(ACCESS_COOKIE_NAME)):
+    try:
+        access_cookie = st.context.cookies.get(ACCESS_COOKIE_NAME)
+    except (AttributeError, TypeError):
+        access_cookie = None
+    if valid_access_cookie(access_cookie):
         st.session_state["browser_authorized"] = True
         return
 
@@ -1596,14 +1617,9 @@ def require_password_for_browser() -> None:
 
     if submitted:
         if hmac.compare_digest(entered_password, APP_PASSWORD):
-            cookies.set(
-                ACCESS_COOKIE_NAME,
-                create_access_cookie_value(),
-                expires=datetime.now() + timedelta(days=ACCESS_COOKIE_DAYS),
-                same_site="strict",
-            )
+            write_access_cookie()
             st.session_state["browser_authorized"] = True
-            st.rerun()
+            return
         else:
             st.error("Incorrect password.")
     st.stop()
